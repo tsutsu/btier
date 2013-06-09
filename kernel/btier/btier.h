@@ -60,7 +60,7 @@ typedef unsigned long u32;
 #define WA 3			/* All: Cache and disk */
 
 #define BTIER_MAX_DEVS 26
-#define BTIER_MAX_AIO_THREADS 96	/* We are doing a simple form of aio */
+#define BTIER_MAX_INFLIGHT 64
 
 #define RANDOM 0x01
 #define SEQUENTIAL 0x02

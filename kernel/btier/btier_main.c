@@ -1534,8 +1534,8 @@ static int tier_thread(void *data)
         u8 *flagged;
 
 	set_user_nice(current, -20);
-	bio = kzalloc(BTIER_MAX_AIO_THREADS * sizeof(bio), GFP_KERNEL);
-        flagged = kzalloc(BTIER_MAX_AIO_THREADS * sizeof(u8), GFP_KERNEL);
+	bio = kzalloc(BTIER_MAX_INFLIGHT * sizeof(bio), GFP_KERNEL);
+        flagged = kzalloc(BTIER_MAX_INFLIGHT * sizeof(u8), GFP_KERNEL);
 	if (!bio) {
 		tiererror(dev, "tier_thread : alloc failed");
 		return -ENOMEM;
@@ -1554,7 +1554,7 @@ static int tier_thread(void *data)
 			continue;
 		do {
 		        hasslot = 0;
-                        for (i = 0; i < BTIER_MAX_AIO_THREADS; i++) {
+                        for (i = 0; i < BTIER_MAX_INFLIGHT; i++) {
                                 if (!flagged[i]) {
 			           spin_lock_irq(&dev->lock);
 		                   bio[i] = tier_get_bio(dev);
@@ -1566,7 +1566,7 @@ static int tier_thread(void *data)
                                    break;
                                 }
                         }
-		        for (i = 0; i < BTIER_MAX_AIO_THREADS; i++) {
+		        for (i = 0; i < BTIER_MAX_INFLIGHT; i++) {
                                 if (flagged[i]) {
 		        	    res=tier_end_ready_bio(dev, bio[i]);
                                     if (res)
@@ -1576,7 +1576,7 @@ static int tier_thread(void *data)
 /* When reading sequential we stay on a single thread and a single filedescriptor */
 		} while (!bio_list_empty(&dev->tier_bio_list)
 			 && hasslot );
-		for (i = 0; i < BTIER_MAX_AIO_THREADS; i++) {
+		for (i = 0; i < BTIER_MAX_INFLIGHT; i++) {
                         if (flagged[i])
 			    tier_wait_bio(dev, bio[i]);
                         flagged[i]=0;
@@ -2029,9 +2029,9 @@ static int tier_register(struct tier_device *dev)
 	dev->aioname = as_sprintf("%s-aio", dev->devname);
 	dev->migration_queue = create_workqueue(dev->managername);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,36)
-	dev->aio_queue = alloc_workqueue(dev->aioname, WQ_UNBOUND, 1);
+	dev->aio_queue = alloc_workqueue(dev->aioname, WQ_HIGHPRI, 64);
 #else
-	dev->aio_queue = create_singlethread_workqueue(dev->aioname);
+	dev->aio_queue = create_workqueue(dev->aioname);
 #endif
 	INIT_WORK((struct work_struct *)migrateworker, data_migrator);
 	queue_work(dev->migration_queue, (struct work_struct *)migrateworker);
