@@ -1544,6 +1544,11 @@ static int tier_thread(void *data)
 		tiererror(dev, "tier_thread : alloc failed");
 		return -ENOMEM;
 	}
+        if (!flagged) {
+                kfree(bio);
+                tiererror(dev, "tier_thread : alloc failed");
+                return -ENOMEM;
+        }
 	while (!kthread_should_stop() || !bio_list_empty(&dev->tier_bio_list)) {
 
 		wait_event_interruptible(dev->tier_event,
@@ -1560,7 +1565,6 @@ static int tier_thread(void *data)
 			BUG_ON(!bio[backlog]);
                         flagged[backlog]=1;
 			tier_handle_bio(dev, bio[backlog]);
-			backlog++;
 		        for (i = 0; i < backlog; i++) {
                                 if (flagged[i]) {
 		        	    res=tier_end_ready_bio(dev, bio[i]);
@@ -1568,6 +1572,7 @@ static int tier_thread(void *data)
                                         flagged[i]=0;
                                 }
 		        }
+			backlog++;
 /* When reading sequential we stay on a single thread and a single filedescriptor */
 		} while (!bio_list_empty(&dev->tier_bio_list)
 			 && backlog < BTIER_MAX_AIO_THREADS);
