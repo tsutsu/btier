@@ -1529,13 +1529,13 @@ static int tier_thread(void *data)
 {
 	struct tier_device *dev = data;
 	struct bio **bio;
-	int backlog;
+	int hasslot;
 	int i, res;
-        char *flagged;
+        u8 *flagged;
 
 	set_user_nice(current, -20);
 	bio = kzalloc(BTIER_MAX_AIO_THREADS * sizeof(bio), GFP_KERNEL);
-        flagged = kzalloc(BTIER_MAX_AIO_THREADS * sizeof(char), GFP_KERNEL);
+        flagged = kzalloc(BTIER_MAX_AIO_THREADS * sizeof(u8), GFP_KERNEL);
 	if (!bio) {
 		tiererror(dev, "tier_thread : alloc failed");
 		return -ENOMEM;
@@ -1552,27 +1552,31 @@ static int tier_thread(void *data)
 					 kthread_should_stop());
 		if (bio_list_empty(&dev->tier_bio_list))
 			continue;
-		backlog = 0;
 		do {
-			spin_lock_irq(&dev->lock);
-			bio[backlog] = tier_get_bio(dev);
-			spin_unlock_irq(&dev->lock);
-
-			BUG_ON(!bio[backlog]);
-                        flagged[backlog]=1;
-			tier_handle_bio(dev, bio[backlog]);
-		        for (i = 0; i < backlog; i++) {
+		        hasslot = 0;
+                        for (i = 0; i < BTIER_MAX_AIO_THREADS; i++) {
+                                if (!flagged[i]) {
+			           spin_lock_irq(&dev->lock);
+		                   bio[i] = tier_get_bio(dev);
+			           spin_unlock_irq(&dev->lock);
+                                   hasslot=1;
+			           BUG_ON(!bio[i]);
+                                   flagged[i]=1;
+			           tier_handle_bio(dev, bio[i]);
+                                   break;
+                                }
+                        }
+		        for (i = 0; i < BTIER_MAX_AIO_THREADS; i++) {
                                 if (flagged[i]) {
 		        	    res=tier_end_ready_bio(dev, bio[i]);
                                     if (res)
                                         flagged[i]=0;
                                 }
 		        }
-			backlog++;
 /* When reading sequential we stay on a single thread and a single filedescriptor */
 		} while (!bio_list_empty(&dev->tier_bio_list)
-			 && backlog < BTIER_MAX_AIO_THREADS);
-		for (i = 0; i < backlog; i++) {
+			 && hasslot );
+		for (i = 0; i < BTIER_MAX_AIO_THREADS; i++) {
                         if (flagged[i])
 			    tier_wait_bio(dev, bio[i]);
                         flagged[i]=0;
