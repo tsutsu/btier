@@ -259,6 +259,7 @@ typedef struct {
 	int device;
 	void *buf;
 	int size;
+        struct bio *bio;
 	struct page *bv_page;
 } aio_work_t;
 

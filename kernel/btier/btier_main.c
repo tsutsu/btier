@@ -854,6 +854,7 @@ static void aio_reader(struct work_struct *work)
 	res = read_tiered(dev, rwork->buf, rwork->size, rwork->offset);
 	if (res < 0)
 		tiererror(dev, "read failed");
+	atomic_dec(&rwork->bio->bi_cnt);
 	kunmap(rwork->bv_page);
 	kfree(work);
 	atomic_dec(&dev->aio_pending);
@@ -872,13 +873,14 @@ static void aio_writer(struct work_struct *work)
 	res = tier_sync_range(dev, rwork->buf);
 	if (res < 0)
 		tiererror(dev, "sync_range failed");
+	atomic_dec(&rwork->bio->bi_cnt);
 	kfree(work);
 	atomic_dec(&dev->aio_pending);
 	wake_up(&dev->aio_event);
 }
 
 static int read_aio(struct tier_device *dev, char *buffer, u64 offset, int size,
-		    struct page *bv_page)
+		    struct page *bv_page, struct bio *bio)
 {
 	int ret = 0;
 	aio_work_t *rwork;
@@ -889,6 +891,7 @@ static int read_aio(struct tier_device *dev, char *buffer, u64 offset, int size,
 	rwork->buf = buffer;
 	rwork->offset = offset;
 	rwork->size = size;
+        rwork->bio=bio;
 	rwork->bv_page = bv_page;
 	atomic_inc(&dev->aio_pending);
 	INIT_WORK((struct work_struct *)rwork, aio_reader);
@@ -897,7 +900,7 @@ static int read_aio(struct tier_device *dev, char *buffer, u64 offset, int size,
 	return ret;
 }
 
-static int write_aio(struct tier_device *dev, struct blockinfo *binfo, int size)
+static int write_aio(struct tier_device *dev, struct blockinfo *binfo, int size, struct bio *bio)
 {
 	int ret = 0;
 	aio_work_t *rwork;
@@ -908,6 +911,7 @@ static int write_aio(struct tier_device *dev, struct blockinfo *binfo, int size)
 	rwork->buf = binfo;
 	rwork->offset = binfo->offset;
 	rwork->size = size;
+        rwork->bio=bio;
 	atomic_inc(&dev->aio_pending);
 	INIT_WORK((struct work_struct *)rwork, aio_writer);
 	if (!queue_work(dev->aio_queue, (struct work_struct *)rwork))
@@ -977,7 +981,8 @@ static int tier_do_bio(struct tier_device *dev, struct bio *bio)
 				goto out;
 			}
 			if (dev->writethrough) {
-				ret = write_aio(dev, binfo, bvec->bv_len);
+                                atomic_inc(&bio->bi_cnt);
+				ret = write_aio(dev, binfo, bvec->bv_len, bio);
 				keep = 1;
 			} else
 				kfree(binfo);
@@ -986,10 +991,11 @@ static int tier_do_bio(struct tier_device *dev, struct bio *bio)
  * Therefore the threads (read_aio) are only used for randomio
  */
 			if (dev->iotype == RANDOM) {
+                                atomic_inc(&bio->bi_cnt);
 				ret =
 				    read_aio(dev, buffer + bvec->bv_offset,
 					     offset, bvec->bv_len,
-					     bvec->bv_page);
+					     bvec->bv_page, bio);
 				keep = 1;
 			} else
 				ret = read_tiered(dev,
@@ -1039,9 +1045,8 @@ static inline void tier_handle_bio(struct tier_device *dev, struct bio *bio)
 
 static inline void tier_wait_bio(struct tier_device *dev, struct bio *bio)
 {
-
-	if (bio_rw(bio) == READ)
-		wait_event(dev->aio_event, 0 == atomic_read(&dev->aio_pending));
+        if ( 1 != atomic_read(&bio->bi_cnt))
+            wait_event(dev->aio_event, 1 != atomic_read(&bio->bi_cnt));
 	if (dev->inerror)
 		bio_endio(bio, -EIO);
 	bio_endio(bio, 0);
@@ -1499,7 +1504,6 @@ static void data_migrator(struct work_struct *work)
 			continue;
 		}
 		mutex_lock(&dev->qlock);
-
 		wait_event(dev->aio_event, 0 == atomic_read(&dev->aio_pending));
 		tier_sync(dev);
 		walk_blocklist(dev);
@@ -1544,7 +1548,6 @@ static int tier_thread(void *data)
 /* When reading sequential we stay on a single thread and a single filedescriptor */
 		} while (!bio_list_empty(&dev->tier_bio_list)
 			 && backlog < BTIER_MAX_AIO_THREADS);
-
 		for (i = 0; i < backlog; i++) {
 			tier_wait_bio(dev, bio[i]);
 		}
