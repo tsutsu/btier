@@ -1055,7 +1055,7 @@ static inline int tier_end_ready_bio(struct tier_device *dev, struct bio *bio)
 static inline void tier_wait_bio(struct tier_device *dev, struct bio *bio)
 {
         if ( 1 != atomic_read(&bio->bi_cnt))
-            wait_event(dev->aio_event, 1 == atomic_read(&bio->bi_cnt));
+            wait_event(dev->aio_event, 0 == atomic_read(&dev->aio_pending));
 	if (dev->inerror)
 		bio_endio(bio, -EIO);
 	bio_endio(bio, 0);
