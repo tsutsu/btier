@@ -1043,8 +1043,22 @@ static inline void tier_handle_bio(struct tier_device *dev, struct bio *bio)
 		dev->inerror = 1;
 }
 
+static inline int tier_end_ready_bio(struct tier_device *dev, struct bio *bio)
+{
+        if (!bio)
+                return 0;
+        if ( 1 != atomic_read(&bio->bi_cnt))
+                return 0;
+        if (dev->inerror)
+                bio_endio(bio, -EIO);
+        bio_endio(bio, 0);
+        return 1;
+}
+
 static inline void tier_wait_bio(struct tier_device *dev, struct bio *bio)
 {
+        if (!bio)
+                return;
         if ( 1 != atomic_read(&bio->bi_cnt))
             wait_event(dev->aio_event, 1 != atomic_read(&bio->bi_cnt));
 	if (dev->inerror)
@@ -1521,10 +1535,12 @@ static int tier_thread(void *data)
 	struct tier_device *dev = data;
 	struct bio **bio;
 	int backlog;
-	int i;
+	int i, res;
+        char *flagged;
 
 	set_user_nice(current, -20);
 	bio = kzalloc(BTIER_MAX_AIO_THREADS * sizeof(bio), GFP_KERNEL);
+        flagged = kzalloc(BTIER_MAX_AIO_THREADS * sizeof(char), GFP_KERNEL);
 	if (!bio) {
 		tiererror(dev, "tier_thread : alloc failed");
 		return -ENOMEM;
@@ -1543,16 +1559,27 @@ static int tier_thread(void *data)
 			spin_unlock_irq(&dev->lock);
 
 			BUG_ON(!bio[backlog]);
+                        flagged[backlog]=1;
 			tier_handle_bio(dev, bio[backlog]);
 			backlog++;
+		        for (i = 0; i < backlog; i++) {
+                                if (flagged[i]) {
+		        	    res=tier_end_ready_bio(dev, bio[i]);
+                                    if (res)
+                                        flagged[i]=0;
+                                }
+		        }
 /* When reading sequential we stay on a single thread and a single filedescriptor */
 		} while (!bio_list_empty(&dev->tier_bio_list)
 			 && backlog < BTIER_MAX_AIO_THREADS);
 		for (i = 0; i < backlog; i++) {
-			tier_wait_bio(dev, bio[i]);
+                        if (flagged[i])
+			    tier_wait_bio(dev, bio[i]);
+                        flagged[i]=0;
 		}
 	}
 	kfree(bio);
+	kfree(flagged);
 	pr_info("tier_thread worker halted\n");
 	return 0;
 }
