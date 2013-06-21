@@ -1,0 +1,5 @@
+This script can either be used in the cron or in the foreground.
+To use in the cron:
+1  5 * * * /root/migrate_blocks_freq.py -s -m  sdtiera
+
+When run in the foreground it will provide a ncurses user interface. 

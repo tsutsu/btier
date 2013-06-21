@@ -1,0 +1,9 @@
+--- drivers/block/Kconfig.orig	2013-02-26 17:39:24.148276759 +0100
++++ drivers/block/Kconfig	2013-02-26 17:23:48.604248021 +0100
+@@ -544,4 +544,6 @@
+ 
+ 	  If unsure, say N.
+ 
++source "drivers/block/btier/Kconfig"
++
+ endif # BLK_DEV

@@ -1,0 +1,3 @@
+# bttab contains a list of devices that will be used
+# to assemble the tier devices
+# Modify bttab and copy to /etc

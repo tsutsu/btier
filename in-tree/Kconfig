@@ -1,0 +1,12 @@
+#
+# btier
+#
+
+config BTIER
+	tristate "Enable btier"
+	default m
+	---help---
+	btier allows to create a tiered blockdevice from
+	multiple redundant blockdevices.
+
+	If unsure, say N.

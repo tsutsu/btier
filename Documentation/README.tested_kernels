@@ -1,0 +1,9 @@
+Linux version 3.2.0-29-generic (buildd@allspice) (gcc version 4.6.3 (Ubuntu/Linaro 4.6.3-1ubuntu5) )
+Linux version 3.3.4 centos
+
+--
+DISCARD is not supported on < 3.0
+Linux version 2.6.32-40-generic #87-Ubuntu
+--
+Citrix Xenserver 6.1 install on Dom0
+Linux xe01 2.6.32.43-0.4.1.xs1.6.10.734.170748xen #1 SMP Mon Sep 10 13:28:39 EDT 2012 i686 i686 i386 GNU/Linux

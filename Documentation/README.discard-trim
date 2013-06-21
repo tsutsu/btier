@@ -1,0 +1,12 @@
+BTIER now offers full support for TRIM/DISCARD.
+
+Discard requests are used by btier to update it's own metadata.
+The requests are also passed through to the underlying devices.
+
+To use BTIER with discard the filesystem on that uses BTIER has to
+be mounted with -odiscard.
+
+Even when the underlying devices lack support for TRIM it is
+beneficial for performance to mount a btier device with -odiscard.
+In this case BTIER can discard blocks that may have been stored 
+on the fastest btier device without delay.

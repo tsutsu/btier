@@ -1,0 +1,62 @@
+.\"
+.\" btier_inspect.1 - the *roff document processor source for the btier_inspect manual
+.\" You may contact the author by:
+.\" e-mail: mruijter@gmail.com
+.\"
+.TH btier_inspect 1 .\" "BTIER reference" v0.1.0 "2012"
+.SH NAME
+btier_inspect - A tool that can be used to backup and restore btier metadata
+.SH SYNTAX
+.nf
+\fBBackup\fR : ./btier_inspect -f datadev[:datadev:datadev] -b
+\fBRestore :\fR ./btier_inspect -f datadev[:datadev:datadev] -r
+.fi
+.SH VERSION
+This man page documents btier_inspect version 0.9.9.9-8
+.SH DESCRIPTION
+\fBbtier_inspect\fR 
+.PP
+.SS OPTIONS
+.IP -f datafile
+Specify blockdevice(s) and or regular file(s) that where used to create the btier device.
+.IP -b Backup
+Backup the metadata to /tmp
+For example : cli/btier_inspect -f /data/ssd.img:/data/sas.img:/data/sata.img -b
+This will result in the following files being created in /tmp:
+
+bitlist0
+bitlist1
+bitlist2
+blocklist0
+magic_dev0
+magic_dev1
+magic_dev2
+
+So we have one bitlist + magic_dev file per attached device.
+As well as a single file representing the blocklist.
+
+.nf
+.IP -r Restore
+Restore the metadata from /tmp
+.nf
+.PP
+Email bug reports to
+.BR mruijter@gmail.com .
+.SH COPYRIGHT
+Copyright (C) 2012  Mark Ruijter
+.PP
+You can redistribute BTIER and btier_inspect and/or modify it
+under the terms of the GNU General Public License as published by
+the Free Software Foundation.
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see \fB<http://www.gnu.org/licenses/>\fR.
+.PP
+BTIER is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+or FITNESS FOR A PARTICULAR PURPOSE.
+See the GNU General Public License for more details.
+
+.SH AUTHOR
+.PP
+Mark Ruijter <mruijter@gmail.com>
+.br

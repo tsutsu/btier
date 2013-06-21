@@ -1,0 +1,129 @@
+        release                 : 1.0.2 2013-06-08
+                                : Added support for write-through VFS cache.
+                                : btier_setup -s enables this new sync/writethrough capability. 
+                                : Solved a potential data corruption problem with aio_read.
+        release                 : 1.0.1 2013-05-28
+                                : Added a uuid for btier devices available under
+                                : /sys/block/sdtierX/tier/uuid
+        release                 : 1.0.0 2013-05-26
+                                : Added a data migration tool that was contributed 
+                                : by : Stephan Budach. Changed the version number to 1.0.0
+        release                 : 0.9.9.9-8 2013-04-14
+                                : Added a new tool to allow easy metadata backup and restore
+                                : Solved a bug that caused btier to crash up-on recovery
+                                : when a rollback of pending migration was necessary.
+        release                 : 0.9.9.9-7 2013-03-31
+                                : Userspace programs can now retrieve information in paged
+                                : mode. Paged mode allows to retrieve information in batches
+                                : of 20 blocks at a time.
+        release                 : 0.9.9.9-6 2013-03-31
+                                : Check if a device is still mounted when deregister is called
+                                : Fix a problem with migration that was introduced with 0.9.9.9-5
+        release                 : 0.9.9.9-5 2013-03-17
+                                : Implemented a userspace API via sysfs that allows
+                                : userspace programs to retrieve block metadata 
+                                : and control data migration.
+                                : tools/show_block_details.py and tools/show_block_details.sh
+                                : are examples of how this interface can be used.
+                                : TODO: Documentation of this API.
+        release                 : 0.9.9.9-4 2013-03-17
+                                : Improved some logging routines
+                                : Code cleaning
+        release                 : 0.9.9.9-3 2013-03-16
+                                : Solves a nasty bug that can cause loss of data when 
+                                : btier is used with SSD's and a recent kernel that
+                                : supports discard / trim. Upgrading is highly recommended
+                                : for users with SSD's.
+        release                 : 0.9.9.9-1 2013-03-06
+                                : Excuses for the version numbering but we are not quite
+                                : at 1.0, although we are getting close.
+                                : Random read performance is now 4* higher.
+                                : This was achieved by using a threaded worker pool
+                                : for random reads. (aio).
+                                : Migration policies are now stored on disk and not lost
+                                : after unloading the device.
+        release                 : 0.9.9.9 2013-02-27
+                                : Many small bug fixes and code (style) changes
+                                : The kernel module can now be build in-tree as well.
+        release                 : 0.9.9.7 2013-02-12
+                                : btier now disables readahead on the fly when it 
+                                : detects random io.
+        release                 : 0.9.9.4 2013-02-02
+                                : The control device tiercontrol was
+                                : registered with the full pathname.
+                                : This caused slackware to show the device as
+                                : /dev/dev/tiercontrol instead of /dev/tiercontrol
+        release                 : 0.9.9.3 2013-01-28
+                                : No longer panic on fatal errors
+                                : return -EIO instead
+        release                 : 0.9.9.2 2013-01-23
+                                : Improved locking on migration
+        release                 : 0.9.9  2013-01-23
+                                : Solves a bug that can lead to the tier device running
+                                : out of space when there still is space available.
+                                : tier has been renamed to btier so that google returns
+                                : usable results.
+                                : Code has been reviewed for stability and now passes
+                                : long running tests.
+        release                 : 0.5.5  2013-01-12
+                                : Tier now fully supports TRIM/DISCARD.
+        release                 : 0.5.0  2013-01-09
+                                : Random IO performance has been improved.
+                                : Started to implement synchronous replication.
+        release                 : 0.4.6  2012-12-27
+                                : Tier now caches the bitlists as well.
+        release                 : 0.4.5  2012-12-24
+                                : Tier now loads the blocklist (metadata) in memory
+                                : to further enhance the performance.
+                                : Code cleanups.
+        release                 : 0.4.3  2012-12-05
+                                : Tier can now handle resizing of underlying disks.
+        release                 : 0.4.0  2012-12-05
+                                : Partially implements expansion of underlying disks.
+        release                 : 0.3.2  2012-11-29
+                                : This release changes the devicename from /dev/tierX
+                                : to /dev/sdtierX. Reason for the change is that LVM
+                                : filters out the old name and is therefore not usable
+                                : with tier.
+        release                 : 0.3.1  2012-10-03
+                                : Migration engine has been improved.
+                                : Sysfs interface for device_usage and migration_policy
+                                : are now more polished. Devicesize change is now
+                                : detected. Implementation of automatic resizing is 
+                                : still something todo.
+        release                 : 0.2.9  2012-09-22
+                                : The migration policy can now be changed via sysfs
+                                : For details see README.sysfs
+        release                 : 0.2.7  2012-08-21
+                                : Some minor fixes
+                                : barriers are now enabled by default
+                                : and tier now again compiles on older kernels
+        release                 : 0.2.6  2012-07-16
+                                : echo 1/0 >/sys/block/tiera/tier/barriers
+                                : echo 1/0 >/sys/block/tiera/tier/ptsync
+        release                 : 0.2.5  2012-07-16
+                                : TIER now works with iostat
+                                : improved deregistering of the module
+        release                 : 0.2.3  2012-07-14
+                                : Solved a potential core dump when disabling migration
+                                : Added support to change the migration interval via sysfs
+        release                 : 0.2.3  2012-07-12
+                                : Add the option to enable / disable the data migration
+                                : process. So migration can now be disabled by simply:
+                                : echo 1 >/sys/block/tiera/tier/disable_migration
+        release                 : 0.2.2  2012-07-08
+                                : Adds an overview of the amount of space used per tier device
+                                : cat /sys/block/tiera/tier/device_usage 
+				: TIER	DEVICE	SIZE MB	ALLOCATED MB
+				: 0	ssd.img	100	1
+				: 1	sas.img	150	31
+                                :
+        release                 : 0.2.1  2012-07-08
+                                : Added some ifdef's to enable compilation on older kernels
+        release                 : 0.2.0  2012-07-04
+                                : Added recovery from unexpected power downs and crashes
+                                : Now automatically detects device order
+                                : Refuses to load when the devices are not initialized with -c
+Initial release                 : 0.1.0  2012-06-09
+        Resolved problems       :
+        Known problems          : 

@@ -1,0 +1,233 @@
+----------------------------------------------------------------------
+                               BTIER
+
+                        Basic / Block Tier
+
+Author : Mark Ruijter <mruijter@gmail.com>
+----------------------------------------------------------------------
+
+*INTRODUCTION
+
+The btier project provides a simple way to create an automated tiered 
+storage solution.
+
+The advantages of automatically tiered storage are:
+
+
+- Automated tiering eliminates manual data classification
+  and migration while lowering drive counts and power/cooling costs
+- Write active blocks of data to fast (SSD) Tier 0 storage and to
+  improve random io performance
+- Automatically migrate inactive blocks of data to lower-tier more 
+  affordable storage like SATA in RAID6 
+- Mix SSD, SAS and SATA drives in the same system
+- Deploy SSDs to maximize write performance and data availability for
+  mission-critical applications
+- Automatically restripe volume data across all drives when adding
+  capacity on demand
+
+Additional information can be found at:
+http://en.wikipedia.org/wiki/Automated_Tiered_Storage
+
+*INSTALLING BTIER
+
+- PREREQUISITES
+
+To build the tier kernel module the kernel sources and C compiler
+(gcc,make) need to be installed on the system.  
+
+The following command should show your kernel sources
+ls /lib/modules/`uname -r`/build/
+
+Download btier from the sourceforge project page.
+Extract the tar file : tar xvzf btier-x.x.x.tar.gz 
+
+cd btier-x.x.x
+make
+
+This should result in something like:
+make -Wall -C /lib/modules/3.8.0-rc3/build SUBDIRS=
+     /usr/src/btier-0.9.9 M=/usr/src/btier-0.9.9 modules
+make[1]: Entering directory `/usr/src/linux-3.8-rc3'
+  CC [M]  /usr/src/btier-0.9.9/btier_main.o
+  LD [M]  /usr/src/btier-0.9.9/btier.o
+  Building modules, stage 2.
+  MODPOST 1 modules
+  CC      /usr/src/btier-0.9.9/btier.mod.o
+  LD [M]  /usr/src/btier-0.9.9/btier.ko
+make[1]: Leaving directory `/usr/src/linux-3.8-rc3'
+gcc -O2 btier_setup.c -o btier_setup 
+gcc -O2 tools/writetest.c -o tools/writetest
+
+* BEFORE USING btier
+btier combines multiple devices to create a btier device.
+This is in a way identical to raid0.
+Therefore failure of one of the devices will cause btier to fail as well.
+
+__I therefore strongly advise to use btier with raid protected volumes.__
+
+btier supports online extension of the device when the underlying devices
+support this as well. For example using a SAN or LVM devices with tier
+would enable your to resize the tier device later on.
+
+* USING TIER
+Now that you have succesfully compiled and installed tier we are
+ready to use it.
+
+The first step is to load the kernel module:
+  modprobe btier
+After loading the module a new character device should be 
+visible: ls -l /dev/tiercontrol
+crw-rw---- 1 root root 10, 50 2013-01-23 10:21 /dev/tiercontrol
+
+We are now ready to create a btier blockdevice.
+
+btier allows us to use either real blockdevices or files to be part
+of the tier. A simple way to test btier is therefore to create some
+files and use them to create the btier device.
+
+Example:
+dd if=/dev/zero of=/tmp/ssd.img bs=1M count=100
+dd if=/dev/zero of=/tmp/sas.img bs=1M count=150
+./btier_setup -f /tmp/ssd.img:/tmp/sas.img -c
+
+Please note that the first time that the tier device is created we
+use -c to initialize the device. Do _not_ use -c afterwards since
+this will erase the data that is stored on the device!
+
+After btier_setup we should have a new device:
+ls -l /dev/sdtiera
+brw-rw---- 1 root disk 251, 0 2013-01-23 10:28 /dev/sdtiera
+
+You can now format the device with your filesystem of choice.
+Since btier supports discard aka trim a modern filesystem would 
+be a good choice. 
+
+Mount the filesystem with -odiscard to use the discard functionality.
+
+* TUNING TIER MIGRATION
+TIER can be controlled via the sysfs interface that it provides.
+Important things to tune are the migration interval and migration
+policy.
+
+The migration interval determines how frequently btier will check if
+data can be migrated from one tier to another.
+
+The default interval is set to 14400 seconds:
+cat /sys/block/sdtiera/tier/migration_interval 
+14400
+
+So every 4 hours btier will check if there are blocks that should be
+migrated to a higher or lower tier.
+
+Another sysfs file that play an important role in migration is:
+cat /sys/block/sdtiera/tier/migration_policy 
+   tier               device         max_age hit_collecttime
+      0              ssd.img           86400           43200
+      1              sas.img           86400           43200
+
+What this learns us is that tier 0 is a file with the name ssd.img
+Blocks that are stored on tier 0 and have been unused for more then
+86400 seconds will be migrated to tier 1. Any block that is moved
+from tier 1 to tier 0 has a grace period of 43200 seconds before it
+is considered for migration back to tier 1.
+
+You can modify the policy like this:
+echo "0              ssd.img           172800           86400" \
+      >/sys/block/sdtiera/tier/migration_policy
+
+cat /sys/block/sdtiera/tier/migration_policy 
+   tier               device         max_age hit_collecttime
+      0              ssd.img          172800           86400
+      1              sas.img           86400           43200
+
+It is also possible to disable migration during peak hours
+since migration will have a performance impact.
+
+echo 0 >/sys/block/sdtiera/tier/migration_enable
+
+To enable migration:
+echo 1 >/sys/block/sdtiera/tier/migration_enable
+
+Please note that when you re-enable migration the process will 
+start immediately.
+
+Btier allows us to obtain usage information about the
+1MB chunks that make up a btier device.
+
+First check the number of available blocks:
+cat /sys/block/sdtiera/tier/size_in_blocks
+
+To select a block that you want to learn more about:
+echo [BLOCKNR] >/sys/block/sdtiera/tier/show_blockinfo
+
+* NOTE that the first block is blocknr 0.
+Therefore the last valid block is :
+/sys/block/sdtiera/tier/size_in_blocks - 1
+
+To show blocknr 22 :
+echo 22 >/sys/block/sdtiera/tier/show_blockinfo 
+
+And now simply:
+cat /sys/block/sdtiera/tier/show_blockinfo 
+0,1048576,1363539405,17,133
+
+When a block is not used and therefore not allocated 
+the output will be : -1,0,0,0,0
+
+A simple example of how this interface can be used 
+can be found in the tools directory:
+tools/show_block_details.sh
+
+* INFORMATION AND STATISTICS
+
+btier supports iostat (from the sysstat package).
+For example : iostat 3 3
+
+Linux 2.6.32-45-generic (saturn) 	01/23/2013 	_x86_64_	(4 CPU)
+
+avg-cpu:  %user   %nice %system %iowait  %steal   %idle
+           1.98    0.10    1.16    0.57    0.00   96.20
+
+Device:            tps   Blk_read/s   Blk_wrtn/s   Blk_read   Blk_wrtn
+sda               8.60       433.65       511.16    4732114    5577994
+sdtiera         125.81         0.17       297.70       1886    3248620
+
+You can also see how the underlying devices to tier are used:
+cat /sys/block/sdtiera/tier/device_usage 
+   TIER               DEVICE         SIZE MB    ALLOCATED MB   AVERAGE READS  AVERAGE WRITES
+      0              ssd.img             100              95               0             242
+      1              sas.img             150             147               1            8964
+
+* BTIER DEVICE UUID
+
+The current UUID of the device can be found at:
+cat /sys/block/sdtierX/tier/uuid
+
+* RESIZING BTIER DEVICES
+
+btier supports online resizing of the device.
+However shrinking of the device is not supported.
+
+When one of the underlying devices has changed in size you can simply signal btier to 
+resize as well.
+
+echo 1 >/sys/block/sdtiera/tier/resize
+
+README.resize_devices
+
+* BARRIERS AND PTSYNC
+
+btier supports barriers in combination with a filesystem that supports it.
+So whenever for example ext4 or xfs issues a barrier request btier will flush
+all data to disk including it's own metadata.
+
+Older filesystems such as ext2 do not support barriers.
+When ptsync is enabled : echo 1 >/sys/block/sdtier[X]/tier/ptsync
+btier will flush all data including it's own metadata to disk when sync() is
+received.
+
+*NEW btier now also supports a write-through cache policy.
+To enable : echo 1 >/sys/block/sdtier[X]/tier/writethrough
+Writethrough means that before returning to the user the data will have been flushed to disk.
+Effectively the same as issuing fsync() after every write.

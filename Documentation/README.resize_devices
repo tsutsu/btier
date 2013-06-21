@@ -1,0 +1,34 @@
+BTIER can handle resizing of the underlying devices.
+
+For example:
+insmod ./btier.ko
+dd if=/dev/zero of=/data/ssd.img bs=1M count=100
+dd if=/dev/zero of=/data/sas.img bs=1M count=150
+./tier_setup -f /data/ssd.img:/data/sas.img -c
+mkfs.xfs /dev/sdtiera
+mount /dev/sdtiera /mnt
+
+df /mnt
+Filesystem           1K-blocks      Used Available Use% Mounted on
+/dev/sdtiera            243008     12548    230460   6% /mnt
+
+truncate --size=10000M /data/sas.img
+echo 1 >/sys/block/sdtiera/tier/resize
+xfs_growfs /mnt
+
+centos:/usr/src/tier-0.4.3 # xfs_growfs /mnt
+meta-data=/dev/sdtiera           isize=256    agcount=4, agsize=15488 blks
+         =                       sectsz=512   attr=2
+data     =                       bsize=4096   blocks=61952, imaxpct=25
+         =                       sunit=0      swidth=0 blks
+naming   =version 2              bsize=4096   ascii-ci=0
+log      =internal               bsize=4096   blocks=1200, version=2
+         =                       sectsz=512   sunit=0 blks, lazy-count=1
+realtime =none                   extsz=4096   blocks=0, rtextents=0
+data blocks changed from 61952 to 2585600
+
+df /mnt
+Filesystem           1K-blocks      Used Available Use% Mounted on
+/dev/sdtiera          10337600     17764  10319836   1% /mnt
+
+This works with files as shown in the example above as well as with (LVM) devices.

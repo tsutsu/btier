@@ -1,0 +1,2 @@
+#
+xe sr-create content-type=user name-label="BTIER auto tiering storage" shared=false device-config-device=/dev/sdtiera type=lvm

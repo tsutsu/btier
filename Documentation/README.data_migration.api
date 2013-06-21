@@ -1,0 +1,92 @@
+
+As of version 0.9.9.9-5 btier comes with an API that allows
+userspace programs to retrieve metadata about block placement
+and block usage.
+
+btier keeps track of each block stored in this structure:
+
+struct blockinfo {
+        unsigned int device;
+        u64 offset;
+        time_t lastused;
+        unsigned int readcount;
+        unsigned int writecount;
+} __attribute__ ((packed));
+
+To access this information from userspace btier comes with
+an API that allows retrieval and manipulation via sysfs.
+
+Retrieving information about a block is simple:
+Assume that we want to retrieve statistic from blocknr 10.
+
+To retrieve information about this block first tell the API 
+that we want info on this block:
+     echo  10 >/sys/block/sdtiera/tier/show_blockinfo
+Now retrieve the information:
+     cat /sys/block/sdtiera/tier/show_blockinfo 
+
+The output is formatted like this:
+Device,offset,atime,readcount,writecount
+-1,0,0,0,0
+
+Device -1 indicates that this block has not yet been used
+and is therefore not allocated.
+
+For example an allocated block would look like this:
+1,19922944,1364229177,1,30
+
+This block is stored on tier 1 (usually slower SAS/SATA) 
+at offset 19922944 has been accessed at time since 
+EPOCH 1364229177 and has been read once and has 
+been written to 30 times.
+
+The syntax to migate a block is : 
+echo <blocknr>/<device> >/sys/block/sdtierX/tier/migrate_block
+
+*NEW* btier now supports paged blockinfo retrieval.
+Instead of retrieving the metadata of one block this will
+retrieve the information about 20 blocks (a page) in one read.
+
+To retrieve information about blocknr 0 to 19:
+     echo "0 paged" >/sys/block/sdtiera/tier/show_blockinfo
+Now retrieve the information:
+     cat /sys/block/sdtiera/tier/show_blockinfo
+[root@dev64 Documentation]# echo "0 paged" >/sys/block/sdtiera/tier/show_blockinfo 
+[root@dev64 Documentation]# cat /sys/block/sdtiera/tier/show_blockinfo 
+0,1048576,1365346224,74,256
+0,2097152,1365346224,1,255
+0,3145728,1365346224,1,102
+-1,0,0,0,0
+-1,0,0,0,0
+-1,0,0,0,0
+-1,0,0,0,0
+-1,0,0,0,0
+-1,0,0,0,0
+-1,0,0,0,0
+-1,0,0,0,0
+-1,0,0,0,0
+-1,0,0,0,0
+-1,0,0,0,0
+-1,0,0,0,0
+-1,0,0,0,0
+-1,0,0,0,0
+-1,0,0,0,0
+-1,0,0,0,0
+-1,0,0,0,0
+
+The tools/show_block_details_paged.sh script illustrates the concept.
+This script is almost 20 times faster then tools/show_block_details.sh
+
+When migrating a block btier will check that:
+
+The device that you specify is valid and not equal to the 
+device where the block currently resides on.
+If there is space on the specified device, 
+otherwise the request will be ignored.
+
+When a block is migrated via userspace/sysfs the built-in
+migration will be automatically disabled!
+"btier: migration is disabled for sdtiera due to user controlled data migration"
+
+Examples of userspace controlled migration can be found
+in the tools directory.
