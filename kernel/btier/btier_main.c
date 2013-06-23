@@ -890,7 +890,6 @@ static int read_aio(struct tier_device *dev, char *buffer, u64 offset, int size,
 	rwork->offset = offset;
 	rwork->size = size;
 	rwork->bv_page = bv_page;
-	dev->aio_type = READ;
 	atomic_inc(&dev->aio_pending);
 	INIT_WORK((struct work_struct *)rwork, aio_reader);
 	if (!queue_work(dev->aio_queue, (struct work_struct *)rwork))
@@ -909,7 +908,6 @@ static int write_aio(struct tier_device *dev, struct blockinfo *binfo, int size)
 	rwork->buf = binfo;
 	rwork->offset = binfo->offset;
 	rwork->size = size;
-	dev->aio_type = WRITE;
 	atomic_inc(&dev->aio_pending);
 	INIT_WORK((struct work_struct *)rwork, aio_writer);
 	if (!queue_work(dev->aio_queue, (struct work_struct *)rwork))
@@ -987,10 +985,6 @@ static int tier_do_bio(struct tier_device *dev, struct bio *bio)
 /* There is no need to randomize a sequential stream with threads
  * Therefore the threads (read_aio) are only used for randomio
  */
-			if (dev->aio_type == WRITE
-			    && 0 != atomic_read(&dev->aio_pending))
-				wait_event(dev->aio_event,
-					   0 == atomic_read(&dev->aio_pending));
 			if (dev->iotype == RANDOM) {
 				ret =
 				    read_aio(dev, buffer + bvec->bv_offset,

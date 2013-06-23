@@ -241,7 +241,6 @@ struct tier_device {
 	int writethrough;
 /* Where do we initially store sequential IO */
 	int inerror;
-	int aio_type;
 /* The blocknr that the user can retrieve info for via sysfs*/
 	u64 user_selected_blockinfo;
 	int user_selected_ispaged;
