@@ -209,7 +209,7 @@ static int mark_offset_as_used(struct tier_device *dev, int device, u64 offset)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,0,0)
 	ret =
 	    vfs_fsync_range(backdev->fds, backdev->startofbitlist + boffset, 1,
-			    FSMODE );
+			    FSMODE);
 #else
 	ret = vfs_fsync_range(backdev->fds, backdev->fds->f_path.dentry,
 			      backdev->startofbitlist + boffset, 1, FSMODE);
@@ -335,29 +335,6 @@ static int tier_file_write(struct tier_device *dev, unsigned int device,
 	return bw;
 }
 
-/**
- * tier_file_write - helper for writing data
- */
-static int tier_file_write_nosync(struct tier_device *dev, unsigned int device,
-                           void *buf, const int len, loff_t pos)
-{
-        ssize_t bw;
-        mm_segment_t old_fs = get_fs();
-        struct backing_device *backdev = dev->backdev[device];
-
-        set_fs(get_ds());
-        bw = vfs_write(backdev->fds, buf, len, &pos);
-        set_fs(old_fs);
-        if (likely(bw == len))
-                return 0;
-        pr_err("Write error on device %s at offset %llu, length %i.\n",
-               backdev->fds->f_dentry->d_name.name,
-               (unsigned long long)pos, len);
-        if (bw >= 0)
-                bw = -EIO;
-        return bw;
-}
-
 static int read_tiered(struct tier_device *dev, void *data,
 		       unsigned int len, u64 offset)
 {
@@ -439,14 +416,9 @@ struct blockinfo *write_tiered(struct tier_device *dev, void *data,
 			goto end_error;
 		}
 	}
-        if ( !dev->writethrough)
-         	res =
-         	    tier_file_write(dev, binfo->device - 1,
-	         		    data, len, binfo->offset + block_offset);
-        else
-         	res =
-         	    tier_file_write_nosync(dev, binfo->device - 1,
-	         		    data, len, binfo->offset + block_offset);
+	res =
+	    tier_file_write(dev, binfo->device - 1,
+			    data, len, binfo->offset + block_offset);
 	if (res != 0) {
 		dev->inerror = 1;
 		pr_err("Unexpected write error %llu - %i \n",
@@ -683,7 +655,8 @@ static int write_blocklist(struct tier_device *dev, u64 blocknr,
 #else
 		ret = vfs_fsync_range(backdev->fds, backdev->fds->f_path.dentry,
 				      blocklist_offset,
-				      blocklist_offset + sizeof(*binfo), FSMODE);
+				      blocklist_offset + sizeof(*binfo),
+				      FSMODE);
 #endif
 	}
 	return ret;
@@ -998,10 +971,6 @@ static int tier_do_bio(struct tier_device *dev, struct bio *bio)
 		determine_iotype(dev, blocknr);
 		buffer = kmap(bvec->bv_page);
 		if (bio_rw(bio) == WRITE) {
-			if (dev->aio_type == READ
-			    && 0 != atomic_read(&dev->aio_pending))
-				wait_event(dev->aio_event,
-					   0 == atomic_read(&dev->aio_pending));
 			binfo =
 			    write_tiered(dev, buffer + bvec->bv_offset,
 					 bvec->bv_len, offset);

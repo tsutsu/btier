@@ -591,18 +591,18 @@ static ssize_t tier_attr_migration_policy_show(struct tier_device *dev,
 			     "device", "max_age", "hit_collecttime", i,
 			     dev->backdev[i]->fds->f_dentry->d_name.name,
 			     dev->backdev[i]->devmagic->dtapolicy.max_age,
-			     dev->backdev[i]->devmagic->
-			     dtapolicy.hit_collecttime);
+			     dev->backdev[i]->devmagic->dtapolicy.
+			     hit_collecttime);
 		} else {
 			msg2 =
 			    as_sprintf("%s%7u %20s %15u %15u\n", msg,
 				       i,
-				       dev->backdev[i]->fds->f_dentry->d_name.
-				       name,
-				       dev->backdev[i]->devmagic->
-				       dtapolicy.max_age,
-				       dev->backdev[i]->devmagic->
-				       dtapolicy.hit_collecttime);
+				       dev->backdev[i]->fds->f_dentry->
+				       d_name.name,
+				       dev->backdev[i]->devmagic->dtapolicy.
+				       max_age,
+				       dev->backdev[i]->devmagic->dtapolicy.
+				       hit_collecttime);
 		}
 		kfree(msg);
 		msg = msg2;

@@ -85,7 +85,7 @@ typedef unsigned long u32;
 
 #define TIERREAD 1
 #define TIERWRITE 2
-#define FSMODE 1 /* vfs datasync mode 0 or 1 */
+#define FSMODE 1		/* vfs datasync mode 0 or 1 */
 
 #define TIERMAXAGE 86400	/* When a chunk has not been used TIERMAXAGE it
 				   will migrate to a slower (higher) tier */
