@@ -891,7 +891,7 @@ static int read_aio(struct tier_device *dev, char *buffer, u64 offset, int size,
 	rwork->buf = buffer;
 	rwork->offset = offset;
 	rwork->size = size;
-        rwork->bio=bio;
+	rwork->bio = bio;
 	rwork->bv_page = bv_page;
 	atomic_inc(&dev->aio_pending);
 	INIT_WORK((struct work_struct *)rwork, aio_reader);
@@ -900,7 +900,8 @@ static int read_aio(struct tier_device *dev, char *buffer, u64 offset, int size,
 	return ret;
 }
 
-static int write_aio(struct tier_device *dev, struct blockinfo *binfo, int size, struct bio *bio)
+static int write_aio(struct tier_device *dev, struct blockinfo *binfo, int size,
+		     struct bio *bio)
 {
 	int ret = 0;
 	aio_work_t *rwork;
@@ -911,7 +912,7 @@ static int write_aio(struct tier_device *dev, struct blockinfo *binfo, int size,
 	rwork->buf = binfo;
 	rwork->offset = binfo->offset;
 	rwork->size = size;
-        rwork->bio=bio;
+	rwork->bio = bio;
 	atomic_inc(&dev->aio_pending);
 	INIT_WORK((struct work_struct *)rwork, aio_writer);
 	if (!queue_work(dev->aio_queue, (struct work_struct *)rwork))
@@ -981,7 +982,7 @@ static int tier_do_bio(struct tier_device *dev, struct bio *bio)
 				goto out;
 			}
 			if (dev->writethrough) {
-                                atomic_inc(&bio->bi_cnt);
+				atomic_inc(&bio->bi_cnt);
 				ret = write_aio(dev, binfo, bvec->bv_len, bio);
 			} else
 				kfree(binfo);
@@ -990,7 +991,7 @@ static int tier_do_bio(struct tier_device *dev, struct bio *bio)
  * Therefore the threads (read_aio) are only used for randomio
  */
 			if (dev->iotype == RANDOM) {
-                                atomic_inc(&bio->bi_cnt);
+				atomic_inc(&bio->bi_cnt);
 				ret =
 				    read_aio(dev, buffer + bvec->bv_offset,
 					     offset, bvec->bv_len,
@@ -1044,18 +1045,18 @@ static inline void tier_handle_bio(struct tier_device *dev, struct bio *bio)
 
 static inline int tier_end_ready_bio(struct tier_device *dev, struct bio *bio)
 {
-        if ( 1 != atomic_read(&bio->bi_cnt))
-                return 0;
-        if (dev->inerror)
-                bio_endio(bio, -EIO);
-        bio_endio(bio, 0);
-        return 1;
+	if (1 != atomic_read(&bio->bi_cnt))
+		return 0;
+	if (dev->inerror)
+		bio_endio(bio, -EIO);
+	bio_endio(bio, 0);
+	return 1;
 }
 
 static inline void tier_wait_bio(struct tier_device *dev, struct bio *bio)
 {
-        if ( 1 != atomic_read(&bio->bi_cnt))
-            wait_event(dev->aio_event, 0 == atomic_read(&dev->aio_pending));
+	if (1 != atomic_read(&bio->bi_cnt))
+		wait_event(dev->aio_event, 0 == atomic_read(&dev->aio_pending));
 	if (dev->inerror)
 		bio_endio(bio, -EIO);
 	bio_endio(bio, 0);
@@ -1531,20 +1532,20 @@ static int tier_thread(void *data)
 	struct bio **bio;
 	int hasslot;
 	int i, res;
-        u8 *flagged;
+	u8 *flagged;
 
 	set_user_nice(current, -20);
 	bio = kzalloc(BTIER_MAX_INFLIGHT * sizeof(bio), GFP_KERNEL);
-        flagged = kzalloc(BTIER_MAX_INFLIGHT * sizeof(u8), GFP_KERNEL);
+	flagged = kzalloc(BTIER_MAX_INFLIGHT * sizeof(u8), GFP_KERNEL);
 	if (!bio) {
 		tiererror(dev, "tier_thread : alloc failed");
 		return -ENOMEM;
 	}
-        if (!flagged) {
-                kfree(bio);
-                tiererror(dev, "tier_thread : alloc failed");
-                return -ENOMEM;
-        }
+	if (!flagged) {
+		kfree(bio);
+		tiererror(dev, "tier_thread : alloc failed");
+		return -ENOMEM;
+	}
 	while (!kthread_should_stop() || !bio_list_empty(&dev->tier_bio_list)) {
 
 		wait_event_interruptible(dev->tier_event,
@@ -1553,33 +1554,33 @@ static int tier_thread(void *data)
 		if (bio_list_empty(&dev->tier_bio_list))
 			continue;
 		do {
-		        hasslot = 0;
-                        for (i = 0; i < BTIER_MAX_INFLIGHT; i++) {
-                                if (!flagged[i]) {
-			           spin_lock_irq(&dev->lock);
-		                   bio[i] = tier_get_bio(dev);
-			           spin_unlock_irq(&dev->lock);
-                                   hasslot=1;
-			           BUG_ON(!bio[i]);
-                                   flagged[i]=1;
-			           tier_handle_bio(dev, bio[i]);
-                                   break;
-                                }
-                        }
-		        for (i = 0; i < BTIER_MAX_INFLIGHT; i++) {
-                                if (flagged[i]) {
-		        	    res=tier_end_ready_bio(dev, bio[i]);
-                                    if (res)
-                                        flagged[i]=0;
-                                }
-		        }
+			hasslot = 0;
+			for (i = 0; i < BTIER_MAX_INFLIGHT; i++) {
+				if (!flagged[i]) {
+					spin_lock_irq(&dev->lock);
+					bio[i] = tier_get_bio(dev);
+					spin_unlock_irq(&dev->lock);
+					hasslot = 1;
+					BUG_ON(!bio[i]);
+					flagged[i] = 1;
+					tier_handle_bio(dev, bio[i]);
+					break;
+				}
+			}
+			for (i = 0; i < BTIER_MAX_INFLIGHT; i++) {
+				if (flagged[i]) {
+					res = tier_end_ready_bio(dev, bio[i]);
+					if (res)
+						flagged[i] = 0;
+				}
+			}
 /* When reading sequential we stay on a single thread and a single filedescriptor */
 		} while (!bio_list_empty(&dev->tier_bio_list)
-			 && hasslot );
+			 && hasslot);
 		for (i = 0; i < BTIER_MAX_INFLIGHT; i++) {
-                        if (flagged[i])
-			    tier_wait_bio(dev, bio[i]);
-                        flagged[i]=0;
+			if (flagged[i])
+				tier_wait_bio(dev, bio[i]);
+			flagged[i] = 0;
 		}
 	}
 	kfree(bio);
@@ -2029,7 +2030,8 @@ static int tier_register(struct tier_device *dev)
 	dev->aioname = as_sprintf("%s-aio", dev->devname);
 	dev->migration_queue = create_workqueue(dev->managername);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,36)
-	dev->aio_queue = alloc_workqueue(dev->aioname, WQ_HIGHPRI, 64);
+	dev->aio_queue =
+	    alloc_workqueue(dev->aioname, WQ_HIGHPRI, BTIER_MAX_INFLIGHT);
 #else
 	dev->aio_queue = create_workqueue(dev->aioname);
 #endif

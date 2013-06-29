@@ -430,10 +430,11 @@ static ssize_t tier_attr_migration_interval_store(struct tier_device *dev,
 			return -ENOMSG;
 		mutex_lock(&dev->qlock);
 		dtapolicy->migration_interval = interval;
-		mod_timer(&dev->migrate_timer,
-			  jiffies +
-			  msecs_to_jiffies(dtapolicy->migration_interval *
-					   1000));
+		if (!dtapolicy->migration_disabled)
+			mod_timer(&dev->migrate_timer,
+				  jiffies +
+				  msecs_to_jiffies(dtapolicy->
+						   migration_interval * 1000));
 		mutex_unlock(&dev->qlock);
 	} else
 		s = -ENOMSG;
@@ -591,18 +592,18 @@ static ssize_t tier_attr_migration_policy_show(struct tier_device *dev,
 			     "device", "max_age", "hit_collecttime", i,
 			     dev->backdev[i]->fds->f_dentry->d_name.name,
 			     dev->backdev[i]->devmagic->dtapolicy.max_age,
-			     dev->backdev[i]->devmagic->dtapolicy.
-			     hit_collecttime);
+			     dev->backdev[i]->devmagic->
+			     dtapolicy.hit_collecttime);
 		} else {
 			msg2 =
 			    as_sprintf("%s%7u %20s %15u %15u\n", msg,
 				       i,
-				       dev->backdev[i]->fds->f_dentry->
-				       d_name.name,
-				       dev->backdev[i]->devmagic->dtapolicy.
-				       max_age,
-				       dev->backdev[i]->devmagic->dtapolicy.
-				       hit_collecttime);
+				       dev->backdev[i]->fds->f_dentry->d_name.
+				       name,
+				       dev->backdev[i]->devmagic->
+				       dtapolicy.max_age,
+				       dev->backdev[i]->devmagic->
+				       dtapolicy.hit_collecttime);
 		}
 		kfree(msg);
 		msg = msg2;

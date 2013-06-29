@@ -60,7 +60,7 @@ typedef unsigned long u32;
 #define WA 3			/* All: Cache and disk */
 
 #define BTIER_MAX_DEVS 26
-#define BTIER_MAX_INFLIGHT 64
+#define BTIER_MAX_INFLIGHT 128
 
 #define RANDOM 0x01
 #define SEQUENTIAL 0x02
@@ -259,7 +259,7 @@ typedef struct {
 	int device;
 	void *buf;
 	int size;
-        struct bio *bio;
+	struct bio *bio;
 	struct page *bv_page;
 } aio_work_t;
 
