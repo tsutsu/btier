@@ -33,7 +33,7 @@ install:
 	install -D -m 755 kernel/btier/btier.ko $(DESTDIR)/lib/modules/`uname -r`/kernel/drivers/block/btier.ko
 	install -D -m 755 -s cli/btier_setup $(DESTDIR)/sbin/btier_setup
 	install -D -m 755 rc/btier $(DESTDIR)/etc/init.d/btier
-	install -D -m 600 rc/bttab $(DESTDIR)/etc/bttab
+	install -D -m 600 rc/bttab $(DESTDIR)/etc/bttab_example
 	gzip -c man/btier_setup.1 > man/btier_setup.1.gz
 	gzip -c man/btier_inspect.1 > man/btier_inspect.1.gz
 	install -D -m 644 man/btier_setup.1.gz $(DESTDIR)/usr/share/man/man1/btier_setup.1.gz
