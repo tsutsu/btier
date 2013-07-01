@@ -1,7 +1,7 @@
 Summary:	btier is a tiered block device
 Name:		btier
 Version:	1.1.0
-Release:	0
+Release:	1
 License:	GPLv3+
 Group:		Applications/System
 URL:            http://www.lessfs.com

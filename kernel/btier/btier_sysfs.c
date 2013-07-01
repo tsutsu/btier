@@ -451,21 +451,14 @@ static ssize_t tier_attr_migration_enable_show(struct tier_device *dev,
 
 char *uuid_hash(char *data, int hashlen)
 {
-	int n, pos;
+	int n;
 	char *ahash = NULL;
 
 	ahash = kzalloc(hashlen * 2, GFP_KERNEL);
 	if (!ahash)
 		return NULL;
-	pos = 0;
 	for (n = 0; n < hashlen; n++) {
-		if (pos == 3) {
-			sprintf(&ahash[n * 2], "-");
-			pos = 0;
-		} else {
-			pos++;
-			sprintf(&ahash[n * 2], "%02X", data[n]);
-		}
+	     sprintf(&ahash[n * 2], "%02X", data[n]);
 	}
 	return ahash;
 }
