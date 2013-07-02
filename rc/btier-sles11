@@ -1,0 +1,91 @@
+#! /bin/sh
+### BEGIN INIT INFO
+# chkconfig: 2345 24 76
+# description: XenServer btier tiered storage
+# config: /etc/bttab
+### END INIT INFO
+
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+TS=/sbin/btier_setup
+
+. /etc/rc.status
+. /lib/lsb/init-functions
+
+if [ ! -d /sys/class/ ]; then
+  exit 0
+fi
+
+RETVAL=0
+
+sanitychecks() {
+        # Do sanity checks before we start.
+        mod=/lib/modules/`uname -r`/kernel/drivers/block/btier.ko
+        if [ ! -f $mod ]; then 
+            exit 1
+        fi
+}
+
+start() {
+        sanitychecks
+        modprobe -q btier 2>/dev/null || :
+        for t in `cat /etc/bttab | grep -v "^#"`
+        do
+           $TS -f $t  
+           if [ $? != 0 ]
+              then
+                echo "Failed to setup tier device : $TS -f $t"
+                exit 1
+           fi
+        done
+        # Remember status and be verbose
+        rc_status -v
+}
+
+stop() {
+        for t in `ls /dev/sdtier* | sort -r`
+        do
+           $TS -d $t
+           if [ $? != 0 ]
+              then
+                echo "Failed to deregister tier device : $TS -d $t"
+                exit 1
+           fi
+        done
+	modprobe -r btier 2>/dev/null
+        rc_status -v
+}
+
+restart() {
+	stop
+	start
+        rc_status -v
+}
+
+status() {
+	# list active sessions
+        if [ ! -e /dev/tiercontrol ]
+           then 
+           exit 1
+        fi
+        cat /sys/block/sdtier*/tier/device_usage
+	exit 0
+}
+
+if [ -z "${MODE}" ]
+then
+        MODE=$1
+fi
+
+case "$MODE" in
+	start|stop|restart|status)
+		$MODE
+		;;
+	force-reload)
+		restart
+		;;
+	*)
+        echo "Usage: $0 {start|stop|status|restart}"
+        exit 1
+		;;
+esac
+rc_exit
