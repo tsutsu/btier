@@ -62,6 +62,8 @@ typedef unsigned long u32;
 #define BTIER_MAX_DEVS 26
 #define BTIER_MAX_INFLIGHT 128
 
+#define TIGER_HASH_LEN 24
+
 #define RANDOM 0x01
 #define SEQUENTIAL 0x02
 #define KERNEL_SECTORSIZE 512
@@ -141,6 +143,7 @@ struct devicemagic {
 	u64 startofblocklist;
 	char fullpathname[1025];
 	struct data_policy dtapolicy;
+        char uuid[24];
 } __attribute__ ((packed));
 
 struct fd_s {

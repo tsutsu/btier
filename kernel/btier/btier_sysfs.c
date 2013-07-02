@@ -449,51 +449,13 @@ static ssize_t tier_attr_migration_enable_show(struct tier_device *dev,
 	return sprintf(buf, "%i\n", !dtapolicy->migration_disabled);
 }
 
-char *uuid_hash(char *data, int hashlen)
-{
-	int n;
-	char *ahash = NULL;
-
-	ahash = kzalloc(hashlen * 2, GFP_KERNEL);
-	if (!ahash)
-		return NULL;
-	for (n = 0; n < hashlen; n++) {
-	     sprintf(&ahash[n * 2], "%02X", data[n]);
-	}
-	return ahash;
-}
-
 static ssize_t tier_attr_uuid_show(struct tier_device *dev, char *buf)
 {
-	int i, n, res = 0;
-	char *thash;
-	int hashlen = 24;
-	const char *name;
-	char *xbuf;
-	char *asc;
+	int res = 0;
 
-	xbuf = kzalloc(hashlen, GFP_KERNEL);
-	if (!xbuf)
-		return res;
-	for (i = 0; i < dev->attached_devices; i++) {
-		name = dev->backdev[i]->fds->f_dentry->d_name.name;
-		thash = tiger_hash((char *)name, strlen(name));
-		if (!thash)
-			goto end_error;
-		for (n = 0; n < hashlen; n++) {
-			xbuf[n] ^= thash[n];
-		}
-		kfree(thash);
-	}
-	asc = uuid_hash(xbuf, hashlen);
-	if (asc) {
-		memcpy(buf, asc, 30);
-		kfree(asc);
-		buf[31] = '\n';
-		res = 32;
-	}
-end_error:
-	kfree(xbuf);
+	memcpy(buf, dev->backdev[0]->devmagic->uuid, TIGER_HASH_LEN);
+	buf[TIGER_HASH_LEN] = '\n';
+        res = TIGER_HASH_LEN+1;
 	return res;
 }
 

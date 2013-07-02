@@ -1828,6 +1828,50 @@ static void repair_bitlists(struct tier_device *dev)
 	}
 }
 
+char *uuid_hash(char *data, int hashlen)
+{
+        int n;
+        char *ahash = NULL;
+
+        ahash = kzalloc(TIGER_HASH_LEN * 2, GFP_KERNEL);
+        if (!ahash)
+                return NULL;
+        for (n = 0; n < hashlen; n++) {
+             sprintf(&ahash[n * 2], "%02X", data[n]);
+        }
+        return ahash;
+}
+
+char *btier_uuid(struct tier_device *dev)
+{
+        int i, n;
+        char *thash;
+        int hashlen = TIGER_HASH_LEN;
+        const char *name;
+        char *xbuf;
+        char *asc;
+
+        xbuf = kzalloc(hashlen, GFP_KERNEL);
+        if (!xbuf)
+                return NULL;
+        for (i = 0; i < dev->attached_devices; i++) {
+                name = dev->backdev[i]->fds->f_dentry->d_name.name;
+                thash = tiger_hash((char *)name, strlen(name));
+                if (!thash)
+                        goto end_error;
+                for (n = 0; n < hashlen; n++) {
+                        xbuf[n] ^= thash[n];
+                }
+                kfree(thash);
+        }
+        asc = uuid_hash(xbuf, hashlen);
+        return asc; 
+end_error:
+        kfree(xbuf);
+        return NULL;
+}
+
+
 static int order_devices(struct tier_device *dev)
 {
 	int swap;
@@ -1836,10 +1880,16 @@ static int order_devices(struct tier_device *dev)
 	int clean = 1;
 	struct backing_device *backdev;
 	struct data_policy *dtapolicy;
+        char *zhash, *uuid;
 
+        zhash=kzalloc(TIGER_HASH_LEN, GFP_KERNEL);
+        if (!zhash)
+                goto end_error;
 	backdev = kzalloc(sizeof(*backdev), GFP_KERNEL);
-	if (!backdev)
+	if (!backdev){
+                kfree(zhash);
 		goto end_error;
+        }
 
 /* Allocate and load */
 	for (i = 0; i < dev->attached_devices; i++) {
@@ -1873,6 +1923,14 @@ static int order_devices(struct tier_device *dev)
 			tier_check(dev, i);
 			clean = 0;
 		}
+                uuid=btier_uuid(dev);
+                if (0 == memcmp(dev->backdev[i]->devmagic->uuid,zhash,TIGER_HASH_LEN))
+                     memcpy(dev->backdev[i]->devmagic->uuid,uuid,TIGER_HASH_LEN);              
+                if( 0 != memcmp(dev->backdev[i]->devmagic->uuid, uuid, TIGER_HASH_LEN)){
+	            tiererror(dev, "order_devices : incorrect device assembly");
+                    kfree(backdev);
+                    return -EIO;
+                }   
 		dev->backdev[i]->devmagic->clean = DIRTY;
 		write_device_magic(dev, i);
 		dtapolicy = &dev->backdev[i]->devmagic->dtapolicy;
