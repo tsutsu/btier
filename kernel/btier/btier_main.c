@@ -983,7 +983,6 @@ static int tier_do_bio(struct tier_device *dev, struct bio *bio)
 			if (dev->writethrough) {
                                 atomic_inc(&bio->bi_cnt);
 				ret = write_aio(dev, binfo, bvec->bv_len, bio);
-				keep = 1;
 			} else
 				kfree(binfo);
 		} else {
