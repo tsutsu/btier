@@ -256,13 +256,19 @@ typedef struct {
 } tier_worker_t;
 
 typedef struct {
+        struct bio *bio;
+        atomic_t btbio_cnt;
+        int inuse;
+} btbio_t;
+
+typedef struct {
 	struct work_struct work;
 	struct tier_device *dev;
 	u64 offset;
 	int device;
 	void *buf;
 	int size;
-	struct bio *bio;
+	btbio_t *btbio;
 	struct page *bv_page;
 } aio_work_t;
 
