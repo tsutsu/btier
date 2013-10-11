@@ -143,7 +143,7 @@ struct devicemagic {
 	u64 startofblocklist;
 	char fullpathname[1025];
 	struct data_policy dtapolicy;
-        char uuid[24];
+	char uuid[24];
 } __attribute__ ((packed));
 
 struct fd_s {
@@ -241,6 +241,7 @@ struct tier_device {
 	int migrate_verbose;
 	int ptsync;
 	int discard_to_devices;
+	int discard;
 	int writethrough;
 /* Where do we initially store sequential IO */
 	int inerror;
@@ -256,19 +257,12 @@ typedef struct {
 } tier_worker_t;
 
 typedef struct {
-        struct bio *bio;
-        atomic_t btbio_cnt;
-        int inuse;
-} btbio_t;
-
-typedef struct {
 	struct work_struct work;
 	struct tier_device *dev;
 	u64 offset;
 	int device;
 	void *buf;
 	int size;
-	btbio_t *btbio;
 	struct page *bv_page;
 } aio_work_t;
 

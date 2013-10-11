@@ -15,7 +15,7 @@
 
 #define TRUE 1
 #define FALSE 0
-#define TIER_VERSION "1.2.0"
+#define TIER_VERSION "1.2.2.3"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Mark Ruijter");
@@ -118,8 +118,8 @@ static int tier_sysfs_init(struct tier_device *dev)
 
 void btier_lock(struct tier_device *dev)
 {
-	mutex_lock(&dev->qlock);
 	atomic_set(&dev->migrate, MIGRATION_IO);
+	mutex_lock(&dev->qlock);
 	if (0 != atomic_read(&dev->aio_pending))
 		wait_event(dev->aio_event, 0 == atomic_read(&dev->aio_pending));
 }
@@ -128,6 +128,7 @@ void btier_unlock(struct tier_device *dev)
 {
 	atomic_set(&dev->migrate, 0);
 	mutex_unlock(&dev->qlock);
+        atomic_set(&dev->wqlock, 0);
 }
 
 void btier_clear_statistics(struct tier_device *dev)
@@ -335,13 +336,16 @@ static int tier_file_write(struct tier_device *dev, unsigned int device,
 	return bw;
 }
 
-static int read_tiered(struct tier_device *dev, void *data,
+static int read_tiered(struct tier_device *dev, char *data,
 		       unsigned int len, u64 offset)
 {
 	struct blockinfo *binfo = NULL;
 	u64 blocknr;
 	unsigned int block_offset;
 	int res = 0;
+	int size = 0;
+	unsigned int done = 0;
+	u64 curoff;
 
 	if (dev->iotype == RANDOM)
 		dev->stats.rand_reads++;
@@ -349,27 +353,38 @@ static int read_tiered(struct tier_device *dev, void *data,
 		dev->stats.seq_reads++;
 	if (len == 0)
 		return -1;
-	blocknr = offset >> BLKBITS;
-	block_offset = offset - (blocknr << BLKBITS);
-	binfo = get_blockinfo(dev, blocknr, TIERREAD);
-	if (!binfo)
-		return -EIO;
-	if (dev->inerror) {
+	while (done < len) {
+		curoff = offset + done;
+		blocknr = curoff >> BLKBITS;
+		block_offset = curoff - (blocknr << BLKBITS);
+
+		binfo = get_blockinfo(dev, blocknr, TIERREAD);
+		if (dev->inerror) {
+			res = -EIO;
+			break;
+		}
+		if (len - done + block_offset > BLKSIZE) {
+			size = BLKSIZE - block_offset;
+		} else
+			size = len - done;
+		if (0 == binfo->device) {
+			memset(data + done, 0, size);
+			res = 0;
+		} else {
+			res =
+			    tier_file_read(dev, binfo->device - 1,
+					   data + done, size,
+					   binfo->offset + block_offset);
+		}
 		kfree(binfo);
-		return -EIO;
+		done += size;
+		if (res != 0)
+			break;
 	}
-	if (0 == binfo->device) {
-		memset(data, 0, len);
-		res = 0;
-	} else {
-		res =
-		    tier_file_read(dev, binfo->device - 1,
-				   data, len, binfo->offset + block_offset);
-	}
-	kfree(binfo);
 	return res;
 }
 
+/*
 static int tier_sync_range(struct tier_device *dev, struct blockinfo *binfo)
 {
 	struct backing_device *backdev;
@@ -387,51 +402,56 @@ static int tier_sync_range(struct tier_device *dev, struct blockinfo *binfo)
 #endif
 	kfree(binfo);
 	return res;
-}
+}*/
 
-struct blockinfo *write_tiered(struct tier_device *dev, void *data,
-			       unsigned int len, u64 offset)
+static int write_tiered(struct tier_device *dev, char *data, unsigned int len,
+			u64 offset)
 {
-	struct blockinfo *binfo = NULL;
+	struct blockinfo *binfo;
 	u64 blocknr;
 	unsigned int block_offset;
-	int res;
+	int res = 0;
+	int domig;
+	unsigned int size = 0;
+	unsigned int done = 0;
+	u64 curoff;
 
 	if (dev->iotype == RANDOM)
 		dev->stats.rand_writes++;
 	else
 		dev->stats.seq_writes++;
-	blocknr = offset >> BLKBITS;
-	block_offset = offset - (blocknr << BLKBITS);
-	binfo = get_blockinfo(dev, blocknr, TIERWRITE);
-	if (dev->inerror)
-		goto end_error;
-	if (!binfo)
-		return NULL;
-	if (0 == binfo->device) {
-		res = allocate_block(dev, blocknr, binfo);
-		if (res != 0) {
-			pr_crit("Failed to allocate_block\n");
-			dev->inerror = 1;
-			goto end_error;
+	while (done < len) {
+		curoff = offset + done;
+		blocknr = curoff >> BLKBITS;
+		block_offset = curoff - (blocknr << BLKBITS);
+		binfo = get_blockinfo(dev, blocknr, TIERWRITE);
+		if (dev->inerror) {
+			res = -EIO;
+			break;
 		}
-	}
-	res =
-	    tier_file_write(dev, binfo->device - 1,
-			    data, len, binfo->offset + block_offset);
-	if (res != 0) {
-		dev->inerror = 1;
-		pr_err("Unexpected write error %llu - %i \n",
-		       binfo->offset + block_offset, len);
-		goto end_error;
-	}
-	binfo->offset += block_offset;
-	return binfo;
-
-end_error:
-	if (binfo)
+		if (0 == binfo->device) {
+			res = allocate_block(dev, blocknr, binfo);
+			domig = 0;
+			if (res != 0) {
+				pr_crit("Failed to allocate_block\n");
+				return res;
+			}
+		} else
+			domig = 1;
+		if (len - done + block_offset > BLKSIZE) {
+			size = BLKSIZE - block_offset;
+		} else
+			size = len - done;
+		res =
+		    tier_file_write(dev, binfo->device - 1,
+				    data + done, size,
+				    binfo->offset + block_offset);
 		kfree(binfo);
-	return NULL;
+		done += size;
+		if (res != 0)
+			break;
+	}
+	return res;
 }
 
 /**
@@ -765,7 +785,7 @@ static void discard_on_real_device(struct tier_device *dev,
 	struct backing_device *backdev = dev->backdev[binfo->device - 1];
 	int ret;
 
-	if (!dev->discard_to_devices)
+	if (!dev->discard_to_devices || !dev->discard)
 		return;
 	bdev = lookup_bdev(backdev->devmagic->fullpathname);
 	if (IS_ERR(bdev)) {
@@ -812,6 +832,8 @@ static void tier_discard(struct tier_device *dev, u64 offset, unsigned int size)
 	u64 curoff;
 	u64 start;
 
+	if (!dev->discard)
+		return;
 	curoff = offset + size;
 	lastblocknr = curoff >> BLKBITS;
 	start = offset >> BLKBITS;
@@ -854,33 +876,14 @@ static void aio_reader(struct work_struct *work)
 	res = read_tiered(dev, rwork->buf, rwork->size, rwork->offset);
 	if (res < 0)
 		tiererror(dev, "read failed");
-	atomic_dec(&rwork->btbio->btbio_cnt);
 	kunmap(rwork->bv_page);
 	kfree(work);
 	atomic_dec(&dev->aio_pending);
 	wake_up(&dev->aio_event);
 }
 
-static void aio_writer(struct work_struct *work)
-{
-	aio_work_t *rwork;
-	struct tier_device *dev;
-	int res;
-
-	set_user_nice(current, -20);
-	rwork = (aio_work_t *) work;
-	dev = rwork->dev;
-	res = tier_sync_range(dev, rwork->buf);
-	if (res < 0)
-		tiererror(dev, "sync_range failed");
-	atomic_dec(&rwork->btbio->btbio_cnt);
-	kfree(work);
-	atomic_dec(&dev->aio_pending);
-	wake_up(&dev->aio_event);
-}
-
 static int read_aio(struct tier_device *dev, char *buffer, u64 offset, int size,
-		    struct page *bv_page, btbio_t *btbio)
+		    struct page *bv_page)
 {
 	int ret = 0;
 	aio_work_t *rwork;
@@ -891,7 +894,6 @@ static int read_aio(struct tier_device *dev, char *buffer, u64 offset, int size,
 	rwork->buf = buffer;
 	rwork->offset = offset;
 	rwork->size = size;
-	rwork->btbio = btbio;
 	rwork->bv_page = bv_page;
 	atomic_inc(&dev->aio_pending);
 	INIT_WORK((struct work_struct *)rwork, aio_reader);
@@ -900,37 +902,15 @@ static int read_aio(struct tier_device *dev, char *buffer, u64 offset, int size,
 	return ret;
 }
 
-static int write_aio(struct tier_device *dev, struct blockinfo *binfo, int size,
-		     btbio_t *btbio)
-{
-	int ret = 0;
-	aio_work_t *rwork;
-	rwork = kzalloc(sizeof(*rwork), GFP_KERNEL);
-	if (!rwork)
-		return -ENOMEM;
-	rwork->dev = dev;
-	rwork->buf = binfo;
-	rwork->offset = binfo->offset;
-	rwork->size = size;
-	rwork->btbio = btbio;
-	atomic_inc(&dev->aio_pending);
-	INIT_WORK((struct work_struct *)rwork, aio_writer);
-	if (!queue_work(dev->aio_queue, (struct work_struct *)rwork))
-		ret = -EIO;
-	return ret;
-}
-
-static int tier_do_bio(struct tier_device *dev, btbio_t *btbio)
+static int tier_do_bio(struct tier_device *dev, struct bio *bio)
 {
 	loff_t offset;
 	struct bio_vec *bvec;
 	int i, ret = 0;
 	u64 blocknr = 0;
 	char *buffer;
-	int locked = 0;
+	//int locked = 0;
 	int keep = 0;
-	struct blockinfo *binfo;
-        struct bio *bio = btbio->bio;
 
 #if LINUX_VERSION_CODE <= KERNEL_VERSION(3,0,0)
 	const u64 do_sync = (bio->bi_rw & WRITE_SYNC);
@@ -938,11 +918,11 @@ static int tier_do_bio(struct tier_device *dev, btbio_t *btbio)
 	const u64 do_sync = (bio->bi_rw & REQ_SYNC);
 #endif
 
-	if (MIGRATION_IO == atomic_read(&dev->wqlock)) {
-		mutex_lock(&dev->qlock);
-		locked = 1;
-	}
-	atomic_set(&dev->wqlock, NORMAL_IO);
+	//if (MIGRATION_IO == atomic_read(&dev->wqlock)) {
+        atomic_set(&dev->wqlock, NORMAL_IO); 
+	mutex_lock(&dev->qlock);
+	//locked = 1;
+	//}
 
 	offset = ((loff_t) bio->bi_sector << 9);
 	blocknr = offset >> BLKBITS;
@@ -975,28 +955,21 @@ static int tier_do_bio(struct tier_device *dev, btbio_t *btbio)
 		determine_iotype(dev, blocknr);
 		buffer = kmap(bvec->bv_page);
 		if (bio_rw(bio) == WRITE) {
-			binfo =
+			if (0 != atomic_read(&dev->aio_pending))
+				wait_event(dev->aio_event,
+					   0 == atomic_read(&dev->aio_pending));
+			ret =
 			    write_tiered(dev, buffer + bvec->bv_offset,
 					 bvec->bv_len, offset);
-			if (!binfo) {
-				ret = -EIO;
-				goto out;
-			}
-			if (dev->writethrough) {
-                                atomic_inc(&btbio->btbio_cnt);
-				ret = write_aio(dev, binfo, bvec->bv_len, btbio);
-			} else
-				kfree(binfo);
 		} else {
 /* There is no need to randomize a sequential stream with threads
  * Therefore the threads (read_aio) are only used for randomio
  */
 			if (dev->iotype == RANDOM) {
-                                atomic_inc(&btbio->btbio_cnt);
 				ret =
 				    read_aio(dev, buffer + bvec->bv_offset,
 					     offset, bvec->bv_len,
-					     bvec->bv_page, btbio);
+					     bvec->bv_page);
 				keep = 1;
 			} else
 				ret = read_tiered(dev,
@@ -1031,29 +1004,27 @@ static int tier_do_bio(struct tier_device *dev, btbio_t *btbio)
 	}
 out:
 	atomic_set(&dev->wqlock, 0);
-	if (locked)
-		mutex_unlock(&dev->qlock);
+	//if (locked)
+	mutex_unlock(&dev->qlock);
 	return ret;
 }
 
-static inline void tier_handle_bio(struct tier_device *dev, btbio_t *btbio)
+static inline void tier_handle_bio(struct tier_device *dev, struct bio *bio)
 {
 	int ret;
- 
-        atomic_set(&btbio->btbio_cnt, 0);
-	ret = tier_do_bio(dev, btbio);
+	ret = tier_do_bio(dev, bio);
 	if (ret != 0)
 		dev->inerror = 1;
 }
 
-static inline void tier_wait_bio(struct tier_device *dev, btbio_t *btbio)
+static inline void tier_wait_bio(struct tier_device *dev, struct bio *bio)
 {
-	if (0 != atomic_read(&btbio->btbio_cnt))
-		wait_event(dev->aio_event, 0 == atomic_read(&btbio->btbio_cnt));
+
+	if (bio_rw(bio) == READ)
+		wait_event(dev->aio_event, 0 == atomic_read(&dev->aio_pending));
 	if (dev->inerror)
-		bio_endio(btbio->bio, -EIO);
-        else
-	        bio_endio(btbio->bio, 0);
+		bio_endio(bio, -EIO);
+	bio_endio(bio, 0);
 }
 
 static void reset_counters_on_migration(struct tier_device *dev,
@@ -1500,7 +1471,7 @@ static void data_migrator(struct work_struct *work)
 			if (dev->migrate_verbose)
 				pr_info("NORMAL_IO pending: backoff\n");
 			dev->migrate_timer.expires =
-			    jiffies + msecs_to_jiffies(3000);
+			    jiffies + msecs_to_jiffies(300);
 			if (!dev->stop && !dtapolicy->migration_disabled)
 				mod_timer_pinned(&dev->migrate_timer,
 						 dev->migrate_timer.expires);
@@ -1523,29 +1494,17 @@ static void data_migrator(struct work_struct *work)
 static int tier_thread(void *data)
 {
 	struct tier_device *dev = data;
-	int hasslot;
+	struct bio **bio;
+	int backlog;
 	int i;
-        btbio_t **btbio;
-        int c;
+        int pending_writes;
 
 	set_user_nice(current, -20);
-	btbio = (btbio_t **) kzalloc(BTIER_MAX_INFLIGHT * sizeof(btbio_t *),  GFP_KERNEL);
-	if (!btbio) {
-	      	tiererror(dev, "tier_thread : alloc failed");
+	bio = kzalloc(BTIER_MAX_INFLIGHT * sizeof(bio), GFP_KERNEL);
+	if (!bio) {
+		tiererror(dev, "tier_thread : alloc failed");
 		return -ENOMEM;
-        }
-        for (c = 0; c < BTIER_MAX_INFLIGHT; c++){
-	     btbio[c] = kzalloc(sizeof(btbio_t), GFP_KERNEL);
-	     if (!btbio) {
-                if ( c > 0 ) c--;
-                while ( c != 0 ) {
-                    kfree(btbio[c]); 
-                }
-                kfree(btbio);
-	      	tiererror(dev, "tier_thread : alloc failed");
-		return -ENOMEM;
-	     }
-        }
+	}
 	while (!kthread_should_stop() || !bio_list_empty(&dev->tier_bio_list)) {
 
 		wait_event_interruptible(dev->tier_event,
@@ -1553,33 +1512,28 @@ static int tier_thread(void *data)
 					 kthread_should_stop());
 		if (bio_list_empty(&dev->tier_bio_list))
 			continue;
+		backlog = 0;
+                pending_writes = 0;
 		do {
-			hasslot = 0;
-			for (i = 0; i < BTIER_MAX_INFLIGHT; i++) {
-				if (!btbio[i]->inuse) {
-					spin_lock_irq(&dev->lock);
-                                        btbio[i]->bio = tier_get_bio(dev);
-					spin_unlock_irq(&dev->lock);
-					BUG_ON(!btbio[i]->bio);
-					hasslot = 1;
-					btbio[i]->inuse = 1;
-					tier_handle_bio(dev, btbio[i]);
-					break;
-				}
-                        }
+			spin_lock_irq(&dev->lock);
+			bio[backlog] = tier_get_bio(dev);
+			spin_unlock_irq(&dev->lock);
+                        if ( bio_rw(bio[backlog]) == WRITE)
+                            pending_writes=1;
+			BUG_ON(!bio[backlog]);
+			tier_handle_bio(dev, bio[backlog]);
+			backlog++;
 /* When reading sequential we stay on a single thread and a single filedescriptor */
 		} while (!bio_list_empty(&dev->tier_bio_list)
-			 && hasslot);
-		for (i = 0; i < BTIER_MAX_INFLIGHT; i++) {
-			if ( btbio[i]->inuse ){
-				tier_wait_bio(dev, btbio[i]);
-			        btbio[i]->inuse = 0;
-                        }
+			 && backlog < BTIER_MAX_INFLIGHT);
+                if ( dev->writethrough && pending_writes)
+                        tier_sync(dev);
+		for (i = 0; i < backlog; i++) {
+			tier_wait_bio(dev, bio[i]);
 		}
+                pending_writes=0;
 	}
-        for ( c=0; c <BTIER_MAX_INFLIGHT; c++)
-            kfree(btbio[c]); 
-	kfree(btbio);
+	kfree(bio);
 	pr_info("tier_thread worker halted\n");
 	return 0;
 }
@@ -1825,47 +1779,46 @@ static void repair_bitlists(struct tier_device *dev)
 
 char *uuid_hash(char *data, int hashlen)
 {
-        int n;
-        char *ahash = NULL;
+	int n;
+	char *ahash = NULL;
 
-        ahash = kzalloc(TIGER_HASH_LEN * 2, GFP_KERNEL);
-        if (!ahash)
-                return NULL;
-        for (n = 0; n < hashlen; n++) {
-             sprintf(&ahash[n * 2], "%02X", data[n]);
-        }
-        return ahash;
+	ahash = kzalloc(TIGER_HASH_LEN * 2, GFP_KERNEL);
+	if (!ahash)
+		return NULL;
+	for (n = 0; n < hashlen; n++) {
+		sprintf(&ahash[n * 2], "%02X", data[n]);
+	}
+	return ahash;
 }
 
 char *btier_uuid(struct tier_device *dev)
 {
-        int i, n;
-        char *thash;
-        int hashlen = TIGER_HASH_LEN;
-        const char *name;
-        char *xbuf;
-        char *asc;
+	int i, n;
+	char *thash;
+	int hashlen = TIGER_HASH_LEN;
+	const char *name;
+	char *xbuf;
+	char *asc;
 
-        xbuf = kzalloc(hashlen, GFP_KERNEL);
-        if (!xbuf)
-                return NULL;
-        for (i = 0; i < dev->attached_devices; i++) {
-                name = dev->backdev[i]->fds->f_dentry->d_name.name;
-                thash = tiger_hash((char *)name, strlen(name));
-                if (!thash)
-                        goto end_error;
-                for (n = 0; n < hashlen; n++) {
-                        xbuf[n] ^= thash[n];
-                }
-                kfree(thash);
-        }
-        asc = uuid_hash(xbuf, hashlen);
-        return asc; 
+	xbuf = kzalloc(hashlen, GFP_KERNEL);
+	if (!xbuf)
+		return NULL;
+	for (i = 0; i < dev->attached_devices; i++) {
+		name = dev->backdev[i]->fds->f_dentry->d_name.name;
+		thash = tiger_hash((char *)name, strlen(name));
+		if (!thash)
+			goto end_error;
+		for (n = 0; n < hashlen; n++) {
+			xbuf[n] ^= thash[n];
+		}
+		kfree(thash);
+	}
+	asc = uuid_hash(xbuf, hashlen);
+	return asc;
 end_error:
-        kfree(xbuf);
-        return NULL;
+	kfree(xbuf);
+	return NULL;
 }
-
 
 static int order_devices(struct tier_device *dev)
 {
@@ -1875,16 +1828,16 @@ static int order_devices(struct tier_device *dev)
 	int clean = 1;
 	struct backing_device *backdev;
 	struct data_policy *dtapolicy;
-        char *zhash, *uuid;
+	char *zhash, *uuid;
 
-        zhash=kzalloc(TIGER_HASH_LEN, GFP_KERNEL);
-        if (!zhash)
-                goto end_error;
-	backdev = kzalloc(sizeof(*backdev), GFP_KERNEL);
-	if (!backdev){
-                kfree(zhash);
+	zhash = kzalloc(TIGER_HASH_LEN, GFP_KERNEL);
+	if (!zhash)
 		goto end_error;
-        }
+	backdev = kzalloc(sizeof(*backdev), GFP_KERNEL);
+	if (!backdev) {
+		kfree(zhash);
+		goto end_error;
+	}
 
 /* Allocate and load */
 	for (i = 0; i < dev->attached_devices; i++) {
@@ -1918,14 +1871,20 @@ static int order_devices(struct tier_device *dev)
 			tier_check(dev, i);
 			clean = 0;
 		}
-                uuid=btier_uuid(dev);
-                if (0 == memcmp(dev->backdev[i]->devmagic->uuid,zhash,TIGER_HASH_LEN))
-                     memcpy(dev->backdev[i]->devmagic->uuid,uuid,TIGER_HASH_LEN);              
-                if( 0 != memcmp(dev->backdev[i]->devmagic->uuid, uuid, TIGER_HASH_LEN)){
-	            tiererror(dev, "order_devices : incorrect device assembly");
-                    kfree(backdev);
-                    return -EIO;
-                }   
+		uuid = btier_uuid(dev);
+		if (0 ==
+		    memcmp(dev->backdev[i]->devmagic->uuid, zhash,
+			   TIGER_HASH_LEN))
+			memcpy(dev->backdev[i]->devmagic->uuid, uuid,
+			       TIGER_HASH_LEN);
+		if (0 !=
+		    memcmp(dev->backdev[i]->devmagic->uuid, uuid,
+			   TIGER_HASH_LEN)) {
+			tiererror(dev,
+				  "order_devices : incorrect device assembly");
+			kfree(backdev);
+			return -EIO;
+		}
 		dev->backdev[i]->devmagic->clean = DIRTY;
 		write_device_magic(dev, i);
 		dtapolicy = &dev->backdev[i]->devmagic->dtapolicy;
@@ -2033,10 +1992,6 @@ static int tier_register(struct tier_device *dev)
 	/* Tell the block layer that we are not a rotational device
 	   and that we support discard aka trim.
 	 */
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,0,0)
-	dev->discard_to_devices = 1;
-	queue_flag_set_unlocked(QUEUE_FLAG_DISCARD, dev->rqueue);
-#endif
 	blk_queue_logical_block_size(dev->rqueue, dev->logical_block_size);
 	blk_queue_io_opt(dev->rqueue, BLKSIZE);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,0,0)

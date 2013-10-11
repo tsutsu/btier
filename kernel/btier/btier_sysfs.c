@@ -186,9 +186,43 @@ static ssize_t tier_attr_discard_to_devices_store(struct tier_device *dev,
 			pr_info("discard_to_devices is disabled\n");
 		}
 	} else {
-		if (!dev->ptsync) {
+		if (!dev->discard_to_devices) {
 			dev->discard_to_devices = 1;
 			pr_info("discard_to_devices is enabled\n");
+		}
+	}
+	return s;
+}
+
+static ssize_t tier_attr_discard_store(struct tier_device *dev,
+				       const char *buf, size_t s)
+{
+	if ('0' != buf[0] && '1' != buf[0])
+		return s;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,0,0)
+	return -EOPNOTSUPP;
+#endif
+	if ('0' == buf[0]) {
+		if (dev->discard) {
+			dev->discard = 0;
+			pr_info("discard_to_devices is disabled\n");
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,0,0)
+			if (dev->discard) {
+				queue_flag_clear_unlocked(QUEUE_FLAG_DISCARD,
+							  dev->rqueue);
+			}
+#endif
+		}
+	} else {
+		if (!dev->discard) {
+			dev->discard = 1;
+			pr_info("discard is enabled\n");
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,0,0)
+			if (dev->discard) {
+				queue_flag_set_unlocked(QUEUE_FLAG_DISCARD,
+							dev->rqueue);
+			}
+#endif
 		}
 	}
 	return s;
@@ -420,7 +454,9 @@ static ssize_t tier_attr_migration_interval_store(struct tier_device *dev,
 	int res;
 	u64 interval;
 	char *cpybuf;
-	struct data_policy *dtapolicy = &dev->backdev[0]->devmagic->dtapolicy;
+        struct data_policy *dtapolicy = &dev->backdev[0]->devmagic->dtapolicy;
+        int curstate=dtapolicy->migration_disabled;
+
 	cpybuf = null_term_buf(buf, s);
 	if (!cpybuf)
 		return -ENOMEM;
@@ -428,14 +464,16 @@ static ssize_t tier_attr_migration_interval_store(struct tier_device *dev,
 	if (res == 1) {
 		if (interval <= 0)
 			return -ENOMSG;
+                dtapolicy->migration_disabled=1;
 		mutex_lock(&dev->qlock);
 		dtapolicy->migration_interval = interval;
 		if (!dtapolicy->migration_disabled)
 			mod_timer(&dev->migrate_timer,
 				  jiffies +
-				  msecs_to_jiffies(dtapolicy->
-						   migration_interval * 1000));
+				  msecs_to_jiffies(dtapolicy->migration_interval
+						   * 1000));
 		mutex_unlock(&dev->qlock);
+                dtapolicy->migration_disabled=curstate;
 	} else
 		s = -ENOMSG;
 	kfree(cpybuf);
@@ -455,7 +493,7 @@ static ssize_t tier_attr_uuid_show(struct tier_device *dev, char *buf)
 
 	memcpy(buf, dev->backdev[0]->devmagic->uuid, TIGER_HASH_LEN);
 	buf[TIGER_HASH_LEN] = '\n';
-        res = TIGER_HASH_LEN+1;
+	res = TIGER_HASH_LEN + 1;
 	return res;
 }
 
@@ -508,6 +546,11 @@ static ssize_t tier_attr_discard_to_devices_show(struct tier_device *dev,
 	return sprintf(buf, "%i\n", dev->discard_to_devices);
 }
 
+static ssize_t tier_attr_discard_show(struct tier_device *dev, char *buf)
+{
+	return sprintf(buf, "%i\n", dev->discard);
+}
+
 static ssize_t tier_attr_writethrough_show(struct tier_device *dev, char *buf)
 {
 	return sprintf(buf, "%i\n", dev->writethrough);
@@ -547,18 +590,18 @@ static ssize_t tier_attr_migration_policy_show(struct tier_device *dev,
 			     "device", "max_age", "hit_collecttime", i,
 			     dev->backdev[i]->fds->f_dentry->d_name.name,
 			     dev->backdev[i]->devmagic->dtapolicy.max_age,
-			     dev->backdev[i]->devmagic->
-			     dtapolicy.hit_collecttime);
+			     dev->backdev[i]->devmagic->dtapolicy.
+			     hit_collecttime);
 		} else {
 			msg2 =
 			    as_sprintf("%s%7u %20s %15u %15u\n", msg,
 				       i,
-				       dev->backdev[i]->fds->f_dentry->d_name.
-				       name,
-				       dev->backdev[i]->devmagic->
-				       dtapolicy.max_age,
-				       dev->backdev[i]->devmagic->
-				       dtapolicy.hit_collecttime);
+				       dev->backdev[i]->fds->f_dentry->
+				       d_name.name,
+				       dev->backdev[i]->devmagic->dtapolicy.
+				       max_age,
+				       dev->backdev[i]->devmagic->dtapolicy.
+				       hit_collecttime);
 		}
 		kfree(msg);
 		msg = msg2;
@@ -653,6 +696,7 @@ TIER_ATTR_RW(sequential_landing);
 TIER_ATTR_RW(migrate_verbose);
 TIER_ATTR_RW(ptsync);
 TIER_ATTR_RW(discard_to_devices);
+TIER_ATTR_RW(discard);
 TIER_ATTR_RW(writethrough);
 TIER_ATTR_RW(barriers);
 TIER_ATTR_RW(migration_interval);
@@ -674,6 +718,7 @@ struct attribute *tier_attrs[] = {
 	&tier_attr_migrate_verbose.attr,
 	&tier_attr_ptsync.attr,
 	&tier_attr_discard_to_devices.attr,
+	&tier_attr_discard.attr,
 	&tier_attr_writethrough.attr,
 	&tier_attr_barriers.attr,
 	&tier_attr_migration_interval.attr,
