@@ -144,6 +144,7 @@ struct devicemagic {
 	char fullpathname[1025];
 	struct data_policy dtapolicy;
 	char uuid[24];
+        unsigned int writethrough;
 } __attribute__ ((packed));
 
 struct fd_s {

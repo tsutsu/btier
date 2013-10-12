@@ -231,6 +231,7 @@ static ssize_t tier_attr_discard_store(struct tier_device *dev,
 static ssize_t tier_attr_writethrough_store(struct tier_device *dev,
 					    const char *buf, size_t s)
 {
+        struct devicemagic *magic = dev->backdev[0]->devmagic;
 	if ('0' != buf[0] && '1' != buf[0])
 		return s;
 	btier_lock(dev);
@@ -245,6 +246,7 @@ static ssize_t tier_attr_writethrough_store(struct tier_device *dev,
 			pr_info("writethrough is enabled\n");
 		}
 	}
+        magic->writethrough = dev->writethrough;
 	btier_unlock(dev);
 	return s;
 }

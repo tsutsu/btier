@@ -909,7 +909,6 @@ static int tier_do_bio(struct tier_device *dev, struct bio *bio)
 	int i, ret = 0;
 	u64 blocknr = 0;
 	char *buffer;
-	//int locked = 0;
 	int keep = 0;
 
 #if LINUX_VERSION_CODE <= KERNEL_VERSION(3,0,0)
@@ -918,11 +917,8 @@ static int tier_do_bio(struct tier_device *dev, struct bio *bio)
 	const u64 do_sync = (bio->bi_rw & REQ_SYNC);
 #endif
 
-	//if (MIGRATION_IO == atomic_read(&dev->wqlock)) {
         atomic_set(&dev->wqlock, NORMAL_IO); 
 	mutex_lock(&dev->qlock);
-	//locked = 1;
-	//}
 
 	offset = ((loff_t) bio->bi_sector << 9);
 	blocknr = offset >> BLKBITS;
@@ -1004,7 +1000,6 @@ static int tier_do_bio(struct tier_device *dev, struct bio *bio)
 	}
 out:
 	atomic_set(&dev->wqlock, 0);
-	//if (locked)
 	mutex_unlock(&dev->qlock);
 	return ret;
 }
@@ -1497,7 +1492,6 @@ static int tier_thread(void *data)
 	struct bio **bio;
 	int backlog;
 	int i;
-        int pending_writes;
 
 	set_user_nice(current, -20);
 	bio = kzalloc(BTIER_MAX_INFLIGHT * sizeof(bio), GFP_KERNEL);
@@ -1513,25 +1507,21 @@ static int tier_thread(void *data)
 		if (bio_list_empty(&dev->tier_bio_list))
 			continue;
 		backlog = 0;
-                pending_writes = 0;
 		do {
 			spin_lock_irq(&dev->lock);
 			bio[backlog] = tier_get_bio(dev);
 			spin_unlock_irq(&dev->lock);
-                        if ( bio_rw(bio[backlog]) == WRITE)
-                            pending_writes=1;
 			BUG_ON(!bio[backlog]);
 			tier_handle_bio(dev, bio[backlog]);
 			backlog++;
 /* When reading sequential we stay on a single thread and a single filedescriptor */
 		} while (!bio_list_empty(&dev->tier_bio_list)
 			 && backlog < BTIER_MAX_INFLIGHT);
-                if ( dev->writethrough && pending_writes)
+                if (dev->writethrough)
                         tier_sync(dev);
 		for (i = 0; i < backlog; i++) {
 			tier_wait_bio(dev, bio[i]);
 		}
-                pending_writes=0;
 	}
 	kfree(bio);
 	pr_info("tier_thread worker halted\n");
@@ -1900,6 +1890,11 @@ static int order_devices(struct tier_device *dev)
 		dtapolicy->sequential_landing = 0;
 	if (0 == dtapolicy->migration_interval)
 		dtapolicy->migration_interval = MIGRATE_INTERVAL;
+        if (!dev->writethrough)
+            dev->writethrough=dev->backdev[0]->devmagic->writethrough;
+        if (dev->writethrough)
+                pr_info("write-through (sync) io selected\n");
+                dev->backdev[0]->devmagic->writethrough=dev->writethrough;
 	if (!clean)
 		repair_bitlists(dev);
 	kfree(backdev);
@@ -1926,7 +1921,8 @@ static int tier_register(struct tier_device *dev)
 	int devnr;
 	int ret = 0;
 	tier_worker_t *migrateworker;
-	struct data_policy *dtapolicy = &dev->backdev[0]->devmagic->dtapolicy;
+	struct devicemagic *magic = dev->backdev[0]->devmagic;
+	struct data_policy *dtapolicy = &magic->dtapolicy;
 
 	dev->devname = reserve_devicename(&devnr);
 	if (!dev->devname)
@@ -2103,9 +2099,8 @@ static int tier_set_fd(struct tier_device *dev, struct fd_s *fds,
 out:
 	if (file->f_flags & O_SYNC) {
 		dev->writethrough = 1;
+                /* Store this persistent on unload */
 		file->f_flags ^= O_SYNC;
-		pr_info("write-through (sync) io selected on backend %s\n",
-			file->f_dentry->d_name.name);
 	}
 	return error;
 }
