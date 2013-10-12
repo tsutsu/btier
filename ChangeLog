@@ -1,3 +1,9 @@
+        release                 : 1.1   2013-10-12
+                                : Enabling or disabling writethrough is now persistently stored.
+                                : Solved a problem that could cause data corruption.
+                                : Discard can now be enabled /disabled via sysfs
+                                : Discard to underlying devices can now be enabled / disabled 
+                                : via sysfs
         release                 : 1.0.2 2013-06-08
                                 : Added support for write-through VFS cache.
                                 : btier_setup -s enables this new sync/writethrough capability. 
