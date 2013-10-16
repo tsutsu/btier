@@ -1212,6 +1212,8 @@ static int migrate_down_ifneeded(struct tier_device *dev,
 
 int migrate_direct(struct tier_device *dev, u64 blocknr, int device)
 {
+        if (NORMAL_IO == atomic_read(&dev->wqlock)) 
+		return -EAGAIN;
 	if (0 == atomic_add_unless(&dev->mgdirect.direct, 1, 1))
 		return -EAGAIN;
 	dev->mgdirect.blocknr = blocknr;
