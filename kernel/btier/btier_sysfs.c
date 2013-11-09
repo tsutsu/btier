@@ -231,7 +231,7 @@ static ssize_t tier_attr_discard_store(struct tier_device *dev,
 static ssize_t tier_attr_writethrough_store(struct tier_device *dev,
 					    const char *buf, size_t s)
 {
-        struct devicemagic *magic = dev->backdev[0]->devmagic;
+	struct devicemagic *magic = dev->backdev[0]->devmagic;
 	if ('0' != buf[0] && '1' != buf[0])
 		return s;
 	btier_lock(dev);
@@ -246,7 +246,7 @@ static ssize_t tier_attr_writethrough_store(struct tier_device *dev,
 			pr_info("writethrough is enabled\n");
 		}
 	}
-        magic->writethrough = dev->writethrough;
+	magic->writethrough = dev->writethrough;
 	btier_unlock(dev);
 	return s;
 }
@@ -456,8 +456,8 @@ static ssize_t tier_attr_migration_interval_store(struct tier_device *dev,
 	int res;
 	u64 interval;
 	char *cpybuf;
-        struct data_policy *dtapolicy = &dev->backdev[0]->devmagic->dtapolicy;
-        int curstate=dtapolicy->migration_disabled;
+	struct data_policy *dtapolicy = &dev->backdev[0]->devmagic->dtapolicy;
+	int curstate = dtapolicy->migration_disabled;
 
 	cpybuf = null_term_buf(buf, s);
 	if (!cpybuf)
@@ -466,7 +466,7 @@ static ssize_t tier_attr_migration_interval_store(struct tier_device *dev,
 	if (res == 1) {
 		if (interval <= 0)
 			return -ENOMSG;
-                dtapolicy->migration_disabled=1;
+		dtapolicy->migration_disabled = 1;
 		mutex_lock(&dev->qlock);
 		dtapolicy->migration_interval = interval;
 		if (!dtapolicy->migration_disabled)
@@ -475,7 +475,7 @@ static ssize_t tier_attr_migration_interval_store(struct tier_device *dev,
 				  msecs_to_jiffies(dtapolicy->migration_interval
 						   * 1000));
 		mutex_unlock(&dev->qlock);
-                dtapolicy->migration_disabled=curstate;
+		dtapolicy->migration_disabled = curstate;
 	} else
 		s = -ENOMSG;
 	kfree(cpybuf);
@@ -592,18 +592,18 @@ static ssize_t tier_attr_migration_policy_show(struct tier_device *dev,
 			     "device", "max_age", "hit_collecttime", i,
 			     dev->backdev[i]->fds->f_dentry->d_name.name,
 			     dev->backdev[i]->devmagic->dtapolicy.max_age,
-			     dev->backdev[i]->devmagic->dtapolicy.
-			     hit_collecttime);
+			     dev->backdev[i]->devmagic->
+			     dtapolicy.hit_collecttime);
 		} else {
 			msg2 =
 			    as_sprintf("%s%7u %20s %15u %15u\n", msg,
 				       i,
-				       dev->backdev[i]->fds->f_dentry->
-				       d_name.name,
-				       dev->backdev[i]->devmagic->dtapolicy.
-				       max_age,
-				       dev->backdev[i]->devmagic->dtapolicy.
-				       hit_collecttime);
+				       dev->backdev[i]->fds->f_dentry->d_name.
+				       name,
+				       dev->backdev[i]->devmagic->
+				       dtapolicy.max_age,
+				       dev->backdev[i]->devmagic->
+				       dtapolicy.hit_collecttime);
 		}
 		kfree(msg);
 		msg = msg2;

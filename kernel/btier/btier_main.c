@@ -128,7 +128,7 @@ void btier_unlock(struct tier_device *dev)
 {
 	atomic_set(&dev->migrate, 0);
 	mutex_unlock(&dev->qlock);
-        atomic_set(&dev->wqlock, 0);
+	atomic_set(&dev->wqlock, 0);
 }
 
 void btier_clear_statistics(struct tier_device *dev)
@@ -917,7 +917,7 @@ static int tier_do_bio(struct tier_device *dev, struct bio *bio)
 	const u64 do_sync = (bio->bi_rw & REQ_SYNC);
 #endif
 
-        atomic_set(&dev->wqlock, NORMAL_IO); 
+	atomic_set(&dev->wqlock, NORMAL_IO);
 	mutex_lock(&dev->qlock);
 
 	offset = ((loff_t) bio->bi_sector << 9);
@@ -1212,7 +1212,7 @@ static int migrate_down_ifneeded(struct tier_device *dev,
 
 int migrate_direct(struct tier_device *dev, u64 blocknr, int device)
 {
-        if (NORMAL_IO == atomic_read(&dev->wqlock)) 
+	if (NORMAL_IO == atomic_read(&dev->wqlock))
 		return -EAGAIN;
 	if (0 == atomic_add_unless(&dev->mgdirect.direct, 1, 1))
 		return -EAGAIN;
@@ -1519,8 +1519,8 @@ static int tier_thread(void *data)
 /* When reading sequential we stay on a single thread and a single filedescriptor */
 		} while (!bio_list_empty(&dev->tier_bio_list)
 			 && backlog < BTIER_MAX_INFLIGHT);
-                if (dev->writethrough)
-                        tier_sync(dev);
+		if (dev->writethrough)
+			tier_sync(dev);
 		for (i = 0; i < backlog; i++) {
 			tier_wait_bio(dev, bio[i]);
 		}
@@ -1892,11 +1892,11 @@ static int order_devices(struct tier_device *dev)
 		dtapolicy->sequential_landing = 0;
 	if (0 == dtapolicy->migration_interval)
 		dtapolicy->migration_interval = MIGRATE_INTERVAL;
-        if (!dev->writethrough)
-            dev->writethrough=dev->backdev[0]->devmagic->writethrough;
-        if (dev->writethrough)
-                pr_info("write-through (sync) io selected\n");
-                dev->backdev[0]->devmagic->writethrough=dev->writethrough;
+	if (!dev->writethrough)
+		dev->writethrough = dev->backdev[0]->devmagic->writethrough;
+	if (dev->writethrough)
+		pr_info("write-through (sync) io selected\n");
+	dev->backdev[0]->devmagic->writethrough = dev->writethrough;
 	if (!clean)
 		repair_bitlists(dev);
 	kfree(backdev);
@@ -2101,7 +2101,7 @@ static int tier_set_fd(struct tier_device *dev, struct fd_s *fds,
 out:
 	if (file->f_flags & O_SYNC) {
 		dev->writethrough = 1;
-                /* Store this persistent on unload */
+		/* Store this persistent on unload */
 		file->f_flags ^= O_SYNC;
 	}
 	return error;

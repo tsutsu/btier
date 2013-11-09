@@ -398,8 +398,8 @@ int main(int argc, char *argv[])
 				if (ffd < 0) {
 					fprintf(stderr,
 						"Failed to open file %s\n",
-						mkoptions.backdev[count]->
-						datafile);
+						mkoptions.
+						backdev[count]->datafile);
 					exit(-1);
 				}
 			}
@@ -473,8 +473,8 @@ int main(int argc, char *argv[])
 			    ("backup_device_magic device      : %u\n     size                      : 0x%llx (%llu)\n",
 			     count, mkoptions.total_device_size,
 			     mkoptions.total_device_size);
-			backup_device_magic(mkoptions.backdev[count]->
-					    tier_dta_file,
+			backup_device_magic(mkoptions.
+					    backdev[count]->tier_dta_file,
 					    mkoptions.total_device_size, count,
 					    mkoptions.blocklistsize,
 					    mkoptions.backdev[count]);
@@ -484,8 +484,8 @@ int main(int argc, char *argv[])
 			    ("restore_device_magic device      : %u\n     size                      : 0x%llx (%llu)\n",
 			     count, mkoptions.total_device_size,
 			     mkoptions.total_device_size);
-			restore_device_magic(mkoptions.backdev[count]->
-					     tier_dta_file,
+			restore_device_magic(mkoptions.
+					     backdev[count]->tier_dta_file,
 					     mkoptions.total_device_size, count,
 					     mkoptions.blocklistsize,
 					     mkoptions.backdev[count]);

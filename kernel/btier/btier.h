@@ -139,9 +139,9 @@ struct subvolume {
 
 /* Map subvolume blocks to btier blocks */
 struct subvolmeta {
-        u64 childblk;
-        u64 parentblk;
-} __attribute__ ((packed)); 
+	u64 childblk;
+	u64 parentblk;
+} __attribute__ ((packed));
 
 struct devicemagic {
 	unsigned int magic;
