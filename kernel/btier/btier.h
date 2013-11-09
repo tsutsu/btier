@@ -122,6 +122,27 @@ struct blockinfo {
 	unsigned int writecount;
 } __attribute__ ((packed));
 
+/* 4k space for subvolume header */
+struct subvolume {
+	u64 id;
+	u64 native_id;
+	/* subvolumes are sparse 
+	   devicesize is rounded to 1 MB */
+	u64 devicesize;
+	/* metadata of the device within the tier device 
+	   At this offset a translation table starts which
+	   point that binds a subvolume blocknr to a btier 
+	   blocknr */
+	u64 metaoffset;
+	/* The metadata will consume 16 bytes per 1M block */
+} __attribute__ ((packed));
+
+/* Map subvolume blocks to btier blocks */
+struct subvolmeta {
+        u64 childblk;
+        u64 parentblk;
+} __attribute__ ((packed)); 
+
 struct devicemagic {
 	unsigned int magic;
 	unsigned int device;
@@ -144,7 +165,7 @@ struct devicemagic {
 	char fullpathname[1025];
 	struct data_policy dtapolicy;
 	char uuid[24];
-        unsigned int writethrough;
+	unsigned int writethrough;
 } __attribute__ ((packed));
 
 struct fd_s {
