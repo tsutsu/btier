@@ -131,8 +131,7 @@ struct subvolume {
 	u64 devicesize;
 	/* metadata of the device within the tier device 
 	   At this offset a translation table starts which
-	   point that binds a subvolume blocknr to a btier 
-	   blocknr */
+	   relates a subvolume blocknr to a btier blocknr */
 	u64 metaoffset;
 	/* The metadata will consume 16 bytes per 1M block */
 } __attribute__ ((packed));
