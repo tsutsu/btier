@@ -83,15 +83,21 @@ static int tier_open(struct block_device *bdev, fmode_t mode)
 	return 0;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,12,0)
+static void tier_release(struct gendisk *gd, fmode_t mode)
+#else
 static int tier_release(struct gendisk *gd, fmode_t mode)
+#endif
 {
-	struct tier_device *dev;
+        struct tier_device *dev;
 
-	dev = gd->private_data;
-	spin_lock(&uselock);
-	dev->users--;
-	spin_unlock(&uselock);
-	return 0;
+        dev = gd->private_data;
+        spin_lock(&uselock);
+        dev->users--;
+        spin_unlock(&uselock);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,12,0)
+        return 0;
+#endif
 }
 
 /*
@@ -887,7 +893,7 @@ static int read_aio(struct tier_device *dev, char *buffer, u64 offset, int size,
 {
 	int ret = 0;
 	aio_work_t *rwork;
-	rwork = kzalloc(sizeof(*rwork), GFP_KERNEL);
+	rwork = kzalloc(sizeof(aio_work_t), GFP_KERNEL);
 	if (!rwork)
 		return -ENOMEM;
 	rwork->dev = dev;
@@ -951,9 +957,6 @@ static int tier_do_bio(struct tier_device *dev, struct bio *bio)
 		determine_iotype(dev, blocknr);
 		buffer = kmap(bvec->bv_page);
 		if (bio_rw(bio) == WRITE) {
-			if (0 != atomic_read(&dev->aio_pending))
-				wait_event(dev->aio_event,
-					   0 == atomic_read(&dev->aio_pending));
 			ret =
 			    write_tiered(dev, buffer + bvec->bv_offset,
 					 bvec->bv_len, offset);
@@ -999,6 +1002,9 @@ static int tier_do_bio(struct tier_device *dev, struct bio *bio)
 		}
 	}
 out:
+        if (0 != atomic_read(&dev->aio_pending))
+	    wait_event(dev->aio_event,
+                       0 == atomic_read(&dev->aio_pending));
 	atomic_set(&dev->wqlock, 0);
 	mutex_unlock(&dev->qlock);
 	return ret;
@@ -1014,9 +1020,6 @@ static inline void tier_handle_bio(struct tier_device *dev, struct bio *bio)
 
 static inline void tier_wait_bio(struct tier_device *dev, struct bio *bio)
 {
-
-	if (bio_rw(bio) == READ)
-		wait_event(dev->aio_event, 0 == atomic_read(&dev->aio_pending));
 	if (dev->inerror)
 		bio_endio(bio, -EIO);
 	bio_endio(bio, 0);
@@ -2036,8 +2039,7 @@ static int tier_register(struct tier_device *dev)
 	dev->aioname = as_sprintf("%s-aio", dev->devname);
 	dev->migration_queue = create_workqueue(dev->managername);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,36)
-	dev->aio_queue =
-	    alloc_workqueue(dev->aioname, WQ_HIGHPRI, BTIER_MAX_INFLIGHT);
+	dev->aio_queue = alloc_ordered_workqueue(dev->aioname, 0);
 #else
 	dev->aio_queue = create_workqueue(dev->aioname);
 #endif
