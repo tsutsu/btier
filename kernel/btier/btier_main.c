@@ -901,6 +901,48 @@ static void tier_discard(struct tier_device *dev, u64 offset, unsigned int size)
 }
 #endif
 
+/*
+static void aio_writer(struct work_struct *work)
+{
+        aio_work_t *rwork;
+        struct tier_device *dev;
+        int res;
+
+        set_user_nice(current, -20);
+        rwork = (aio_work_t *) work;
+        dev = rwork->dev;
+
+        res = write_tiered(dev, rwork->buf, rwork->size, rwork->offset);
+        if (res < 0)
+                tiererror(dev, "write failed");
+        kunmap(rwork->bv_page);
+        atomic_dec(&dev->aio_pending);
+        wake_up(&dev->aio_event);
+        kfree(work);
+}
+
+static int write_aio(struct tier_device *dev, char *buffer, u64 offset, int size,
+                    struct page *bv_page)
+{
+        int ret = 0;
+        aio_work_t *rwork;
+        rwork = kzalloc(sizeof(aio_work_t), GFP_NOFS);
+        if (!rwork)
+                return -ENOMEM;
+        rwork->dev = dev;
+        rwork->buf = buffer;
+        rwork->offset = offset;
+        rwork->size = size;
+        rwork->bv_page = bv_page;
+        atomic_inc(&dev->aio_pending);
+        INIT_WORK((struct work_struct *)rwork, aio_writer);
+        if (!queue_work(dev->aio_queue, (struct work_struct *)rwork))
+                ret = -EIO;
+        return ret;
+}
+*/
+
+
 static void aio_reader(struct work_struct *work)
 {
 	aio_work_t *rwork;
@@ -915,9 +957,9 @@ static void aio_reader(struct work_struct *work)
 	if (res < 0)
 		tiererror(dev, "read failed");
 	kunmap(rwork->bv_page);
-	kfree(work);
 	atomic_dec(&dev->aio_pending);
 	wake_up(&dev->aio_event);
+	kfree(work);
 }
 
 static int read_aio(struct tier_device *dev, char *buffer, u64 offset, int size,
@@ -992,9 +1034,9 @@ static int tier_do_bio(struct tier_device *dev, struct bio *bio)
 		buffer = kmap(bvec->bv_page);
 		if (bio_rw(bio) == WRITE) {
                         set_debug_info(dev, PRESWRITE);
-			ret =
-			    write_tiered(dev, buffer + bvec->bv_offset,
-					 bvec->bv_len, offset);
+        		ret =
+        		    write_tiered(dev, buffer + bvec->bv_offset,
+        				 bvec->bv_len, offset);
                         clear_debug_info(dev,PRESWRITE);
 		} else {
 /* There is no need to randomize a sequential stream with threads
@@ -1064,8 +1106,9 @@ static inline void tier_handle_bio(struct tier_device *dev, struct bio *bio)
 static inline void tier_wait_bio(struct tier_device *dev, struct bio *bio)
 {
 	if (dev->inerror)
-		bio_endio(bio, -EIO);
-	bio_endio(bio, 0);
+            bio_endio(bio, -EIO);
+        else
+	    bio_endio(bio, 0);
 }
 
 static void reset_counters_on_migration(struct tier_device *dev,
