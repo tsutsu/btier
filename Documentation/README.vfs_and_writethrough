@@ -1,0 +1,6 @@
+When btier is formatted with XFS while writethrough is disabled the system may deadlock when vfs runs low on memory.
+Setting vfs_cache_pressure to 150 solves the problem :
+echo 150 > /proc/sys/vm/vfs_cache_pressure
+
+Even better (and highly recommended) is to enable writethrough:
+echo 1 >/sys/block/sdtierX/tier/writethrough
