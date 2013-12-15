@@ -1064,8 +1064,9 @@ static inline void tier_handle_bio(struct tier_device *dev, struct bio *bio)
 static inline void tier_wait_bio(struct tier_device *dev, struct bio *bio)
 {
 	if (dev->inerror)
-		bio_endio(bio, -EIO);
-	bio_endio(bio, 0);
+            bio_endio(bio, -EIO);
+        else
+            bio_endio(bio, 0);
 }
 
 static void reset_counters_on_migration(struct tier_device *dev,
