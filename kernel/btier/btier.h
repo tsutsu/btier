@@ -39,6 +39,16 @@ typedef unsigned long u32;
 #include <time.h>
 #endif
 
+/* Enable MAX_PERFORMANCE will stop maintaining counters for
+   internal statistics, which can be used to trace deadlocks and
+   other useful stuff. In most cases it makes sense to keep the
+   counters. Only very fast PCI-e SSD's may benefit from enabling
+   MAX_PERFORMANCE.
+
+#define MAX_PERFORMANCE
+
+*/
+
 #define BLKSIZE 1048576		/*Moving smaller blocks then 4M around
 				   will lead to fragmentation */
 #define BLKBITS 20		/*Adjust when changing BLKSIZE */
@@ -105,6 +115,22 @@ typedef unsigned long u32;
  */
 #define MAX_STAT_COUNT 10000000	/* We count max 10 million hits, hits are reset upon migration */
 #define MAX_STAT_DECAY 500000	/* Loose 5% hits per walk when we have reached the max */
+#ifndef MAX_PERFORMANCE
+enum states {
+    IDLE           = 0,
+    PRERREAD       = 1,
+    PRESREAD       = 2,
+    PRERWRITE      = 4,
+    PRESWRITE      = 8,
+    WAITAIOPENDING = 16,
+    PRESYNC        = 32,
+    PREBINFO       = 64,
+    PREALLOCBLOCK  = 128,
+    REALWRITE      = 256,
+    DISCARD        = 512,
+    VFS_WRITE      = 1024
+};
+#endif
 
 struct data_policy {
 	unsigned int max_age;
@@ -221,6 +247,7 @@ struct tier_device {
 	atomic_t wqlock;
 	atomic_t commit;
 	atomic_t curfd;
+        atomic_t debug_state;
 	unsigned int commit_interval;
 	int barrier;
 	int stop;

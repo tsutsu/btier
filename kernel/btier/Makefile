@@ -5,7 +5,7 @@ btier-objs += btier_sysfs.o
 btier-objs += btier_main.o 
 
 default:
-	cd ../../; make
+	cd ../../; make 
 clean:
 	cd ../../; make clean
 install:

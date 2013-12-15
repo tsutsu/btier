@@ -117,7 +117,8 @@ static ssize_t tier_attr_migration_enable_store(struct tier_device *dev,
 		if (!dtapolicy->migration_disabled
 		    && 0 == atomic_read(&dev->migrate)) {
 			dtapolicy->migration_disabled = 1;
-			del_timer_sync(&dev->migrate_timer);
+                        if (timer_pending(&dev->migrate_timer))
+			    del_timer_sync(&dev->migrate_timer);
 			pr_info("migration is disabled for %s\n", dev->devname);
 		}
 		dtapolicy->migration_disabled = 1;
@@ -489,6 +490,54 @@ static ssize_t tier_attr_migration_enable_show(struct tier_device *dev,
 	return sprintf(buf, "%i\n", !dtapolicy->migration_disabled);
 }
 
+static ssize_t tier_attr_internals_show(struct tier_device *dev,
+                                               char *buf)
+{
+        char *iotype;
+        char *iopending;
+        char *qlock;
+        char *aiowq;
+        char *discard;
+#ifndef MAX_PERFORMANCE
+        char *debugstates;
+#endif
+        int res = 0;
+       
+        if (atomic_read(&dev->migrate) == MIGRATION_IO) 
+            iotype = as_sprintf("iotype (normal or migration) : migration_io\n");
+        else if (atomic_read(&dev->wqlock))
+            iotype = as_sprintf("iotype (normal or migration) : normal_io\n");
+        else
+            iotype = as_sprintf("iotype (normal or migration) : no activity\n");
+        iopending =  as_sprintf("async random ios pending     : %i\n", atomic_read(&dev->aio_pending));
+        if ( mutex_is_locked(&dev->qlock))
+             qlock = as_sprintf("main mutex                   : locked\n");
+        else qlock = as_sprintf("main mutex                   : unlocked\n");
+        if (waitqueue_active(&dev->aio_event)) 
+             aiowq = as_sprintf("waiting on asynchrounous io  : True\n");
+        else 
+             aiowq = as_sprintf("waiting on asynchrounous io  : False\n");
+#ifndef MAX_PERFORMANCE
+        if (atomic_read(&dev->debug_state) & DISCARD)
+           discard = as_sprintf("discard request is pending   : True\n");
+        else 
+           discard = as_sprintf("discard request is pending   : False\n");
+        debugstates = as_sprintf("debug state                  : %i\n", atomic_read(&dev->debug_state));
+        res = sprintf(buf, "%s%s%s%s%s%s", iotype, iopending, qlock, aiowq, discard, debugstates);
+#else
+        res = sprintf(buf, "%s%s%s%s", iotype, iopending, qlock, aiowq);
+#endif
+        kfree(iotype);
+        kfree(iopending);
+        kfree(qlock);
+        kfree(aiowq);
+#ifndef MAX_PERFORMANCE
+        kfree(discard);
+        kfree(debugstates);
+#endif
+        return res;
+}
+
 static ssize_t tier_attr_uuid_show(struct tier_device *dev, char *buf)
 {
 	int res = 0;
@@ -711,6 +760,7 @@ TIER_ATTR_RO(numreads);
 TIER_ATTR_RO(numwrites);
 TIER_ATTR_RO(device_usage);
 TIER_ATTR_RO(uuid);
+TIER_ATTR_RO(internals);
 TIER_ATTR_RW(show_blockinfo);
 TIER_ATTR_WO(clear_statistics);
 TIER_ATTR_WO(migrate_block);
@@ -735,6 +785,7 @@ struct attribute *tier_attrs[] = {
 	&tier_attr_size_in_blocks.attr,
 	&tier_attr_show_blockinfo.attr,
 	&tier_attr_uuid.attr,
+	&tier_attr_internals.attr,
 	&tier_attr_migrate_block.attr,
 	NULL,
 };
