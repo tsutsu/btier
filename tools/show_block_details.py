@@ -145,7 +145,7 @@ def migrate_up(cur,blocknr,device):
           res=migrate_block(blocknr, newdev)
           if res != errno.EAGAIN:
              break
-          time.sleep (1/100)
+          time.sleep (1/5)
 
     print "Migrated blocknr %d from device %d to device %d high hits"  \
            % (blocknr, device, newdev)
@@ -165,7 +165,7 @@ def migrate_down(cur,blocknr,device):
           res=migrate_block(blocknr, newdev)
           if res != errno.EAGAIN:
              break
-          time.sleep (1/100)
+          time.sleep (1/5)
 
     print "Migrated blocknr %d from device %d to device %d low hits" \
            % (blocknr, device, newdev)

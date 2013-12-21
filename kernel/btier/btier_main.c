@@ -583,7 +583,7 @@ static void update_blocklist(struct tier_device *dev, u64 blocknr,
 
 	if (dev->inerror)
 		return;
-	odinfo = kzalloc(sizeof(struct blockinfo), GFP_KERNEL);
+	odinfo = kzalloc(sizeof(struct blockinfo), GFP_NOFS);
 	if (!odinfo) {
 		tiererror(dev, "kzalloc failed");
 		return;
@@ -847,7 +847,7 @@ static void discard_on_real_device(struct tier_device *dev,
 	endoffset = binfo->offset + BLKSIZE;
 	endsector = endoffset / sector_size;
 	nr_sects = endsector - sector;
-	ret = blkdev_issue_discard(bdev, sector, nr_sects, GFP_KERNEL, flags);
+	ret = blkdev_issue_discard(bdev, sector, nr_sects, GFP_NOFS, flags);
 	if (0 == ret)
 		pr_debug
 		    ("discarded : device %s : sector %llu, nrsects %llu,sectorsize %u\n",
@@ -1170,7 +1170,7 @@ static int migrate_up_ifneeded(struct tier_device *dev, struct blockinfo *binfo,
 	if (binfo->device <= 1)	/* already on tier0 */
 		return res;
 
-	orgbinfo = kzalloc(sizeof(struct blockinfo), GFP_KERNEL);
+	orgbinfo = kzalloc(sizeof(struct blockinfo), GFP_NOFS);
 	if (!orgbinfo) {
 		tiererror(dev, "alloc failed");
 		return -ENOMEM;
@@ -1223,7 +1223,7 @@ static int migrate_down_ifneeded(struct tier_device *dev,
 	if (binfo->device == 0)
 		return res;
 
-	orgbinfo = kzalloc(sizeof(struct blockinfo), GFP_KERNEL);
+	orgbinfo = kzalloc(sizeof(struct blockinfo), GFP_NOFS);
 	if (!orgbinfo) {
 		tiererror(dev, "alloc failed");
 		return -ENOMEM;
@@ -1373,16 +1373,20 @@ static void walk_blocklist(struct tier_device *dev)
 	struct data_policy *dtapolicy = &dev->backdev[0]->devmagic->dtapolicy;
 
 	if (dev->migrate_verbose)
-		pr_err("walk_blocklist start from : %llu\n",
+		pr_info("walk_blocklist start from : %llu\n",
 		       dev->resumeblockwalk);
 	for (curblock = dev->resumeblockwalk; curblock < blocks; curblock++) {
-		if (dev->stop || dtapolicy->migration_disabled || dev->inerror)
+		if (dev->stop || dtapolicy->migration_disabled || dev->inerror) {
+                        pr_info("walk_block_list ends on stop or disabled\n");
 			break;
+                }
 		binfo = get_blockinfo(dev, curblock, 0);
-		if (dev->inerror)
+		if (dev->inerror) {
+                        pr_err("walk_block_list stops, device is inerror\n");
                         if (binfo)
                             kfree(binfo);
 			break;
+                }
 		if (binfo->device != 0) {
 			backdev = dev->backdev[binfo->device - 1];
 			devblocks = backdev->devicesize >> BLKBITS;
@@ -1417,6 +1421,8 @@ static void walk_blocklist(struct tier_device *dev)
 			if (mincount > 5 || res) {
 				dev->resumeblockwalk = curblock;
 				interrupted = 1;
+	                        if (dev->migrate_verbose)
+                                    pr_info("walk_block_list interrupted by normal io\n");
 				break;
 			}
 		}
@@ -1465,7 +1471,7 @@ void do_migrate_direct(struct tier_device *dev)
 		       blocknr, newdevice);
 		goto end_error_free;
 	}
-	orgbinfo = kzalloc(sizeof(struct blockinfo), GFP_KERNEL);
+	orgbinfo = kzalloc(sizeof(struct blockinfo), GFP_NOFS);
 	if (!orgbinfo) {
 		tiererror(dev, "alloc failed");
 		res = -ENOMEM;
@@ -1508,6 +1514,8 @@ static void data_migrator(struct work_struct *work)
 			break;
 
 		if (1 == atomic_read(&dev->mgdirect.direct)) {
+                        if (dev->migrate_verbose)
+                            pr_info("do_migrate_direct\n");
 			do_migrate_direct(dev);
 			atomic_set(&dev->mgdirect.direct, 0);
 			continue;
@@ -2312,7 +2320,7 @@ static int copylist(struct tier_device *dev, int devicenr,
 	    ("copylist device %u, ostart 0x%llx (%llu) osize  0x%llx (%llu), nstart 0x%llx (%llu) end 0x%llx (%llu)\n",
 	     devicenr, ostart, ostart, osize, osize, nstart, nstart,
 	     nstart + osize, nstart + osize);
-	buffer = kzalloc(PAGE_SIZE, GFP_KERNEL);
+	buffer = kzalloc(PAGE_SIZE, GFP_NOFS);
 	for (offset = ostart; offset < ostart + osize; offset += PAGE_SIZE) {
 		res = tier_file_read(dev, devicenr, buffer, PAGE_SIZE, offset);
 		if (res < 0)
@@ -2381,7 +2389,7 @@ static int migrate_data_if_needed(struct tier_device *dev, u64 startofblocklist,
 	struct blockinfo *orgbinfo;
 
 	pr_info("migrate_data_if_needed\n");
-	binfo = kzalloc(sizeof(struct blockinfo), GFP_KERNEL);
+	binfo = kzalloc(sizeof(struct blockinfo), GFP_NOFS);
 	if (!binfo) {
 		tiererror(dev, "migrate_data_if_needed : alloc failed");
 		return -ENOMEM;
