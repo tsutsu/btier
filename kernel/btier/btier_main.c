@@ -86,14 +86,19 @@ static int tier_open(struct block_device *bdev, fmode_t mode)
 void set_debug_info(struct tier_device *dev, int state)
 {
 #ifndef MAX_PERFORMANCE
-        atomic_set(&dev->debug_state, atomic_read(&dev->debug_state) | state);
+        spin_lock(&dev->dbg_lock); 
+        dev->debug_state |= state;
+        spin_unlock(&dev->dbg_lock); 
 #endif        
 }
 
 void clear_debug_info(struct tier_device *dev, int state)
 {
 #ifndef MAX_PERFORMANCE
-        atomic_set(&dev->debug_state, atomic_read(&dev->debug_state) ^ state);
+        spin_lock(&dev->dbg_lock); 
+        if (dev->debug_state & state)
+            dev->debug_state ^= state; 
+        spin_unlock(&dev->dbg_lock); 
 #endif        
 }
 
@@ -2047,6 +2052,7 @@ static int tier_register(struct tier_device *dev)
 	pr_info("%s size : %llu\n", dev->devname, dev->size);
 	spin_lock_init(&dev->lock);
 	spin_lock_init(&dev->statlock);
+	spin_lock_init(&dev->dbg_lock);
 	bio_list_init(&dev->tier_bio_list);
 	dev->rqueue = blk_alloc_queue(GFP_KERNEL);
 	if (!dev->rqueue) {
@@ -2072,7 +2078,6 @@ static int tier_register(struct tier_device *dev)
 	atomic_set(&dev->aio_pending, 0);
 	atomic_set(&dev->curfd, 2);
 	atomic_set(&dev->mgdirect.direct, 0);
-	atomic_set(&dev->debug_state, 0);
 	/*
 	 * Get a request queue.
 	 */

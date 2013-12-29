@@ -253,6 +253,7 @@ struct tier_device {
 	spinlock_t lock;
 	spinlock_t statlock;
 	spinlock_t usage_lock;
+	spinlock_t dbg_lock;
 	struct gendisk *gd;
 	struct workqueue_struct *migration_queue;	/* Data migration */
 	struct workqueue_struct *aio_queue;	/* Async IO */
@@ -267,7 +268,7 @@ struct tier_device {
 	atomic_t wqlock;
 	atomic_t commit;
 	atomic_t curfd;
-        atomic_t debug_state;
+        int debug_state;
 	unsigned int commit_interval;
 	int barrier;
 	int stop;
