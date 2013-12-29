@@ -499,7 +499,7 @@ static ssize_t tier_attr_internals_show(struct tier_device *dev,
         char *aiowq;
         char *discard;
 #ifndef MAX_PERFORMANCE
-        char *debugstates;
+        char *debug_state;
 #endif
         int res = 0;
        
@@ -518,12 +518,14 @@ static ssize_t tier_attr_internals_show(struct tier_device *dev,
         else 
              aiowq = as_sprintf("waiting on asynchrounous io  : False\n");
 #ifndef MAX_PERFORMANCE
-        if (atomic_read(&dev->debug_state) & DISCARD)
+        spin_lock(&dev->dbg_lock);
+        if (dev->debug_state & DISCARD)
            discard = as_sprintf("discard request is pending   : True\n");
         else 
            discard = as_sprintf("discard request is pending   : False\n");
-        debugstates = as_sprintf("debug state                  : %i\n", atomic_read(&dev->debug_state));
-        res = sprintf(buf, "%s%s%s%s%s%s", iotype, iopending, qlock, aiowq, discard, debugstates);
+        debug_state = as_sprintf("debug state                  : %i\n", dev->debug_state);
+        spin_unlock(&dev->dbg_lock);
+        res = sprintf(buf, "%s%s%s%s%s%s", iotype, iopending, qlock, aiowq, discard, debug_state);
 #else
         res = sprintf(buf, "%s%s%s%s", iotype, iopending, qlock, aiowq);
 #endif
@@ -533,7 +535,7 @@ static ssize_t tier_attr_internals_show(struct tier_device *dev,
         kfree(aiowq);
 #ifndef MAX_PERFORMANCE
         kfree(discard);
-        kfree(debugstates);
+        kfree(debug_state);
 #endif
         return res;
 }
