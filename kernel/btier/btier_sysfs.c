@@ -316,14 +316,18 @@ static ssize_t tier_attr_sequential_landing_store(struct tier_device *dev,
 		return -ENOMEM;
 	res = sscanf(cpybuf, "%i", &landdev);
 	if (res != 1)
-		return -ENOMSG;
+		goto end_error;
 	if (landdev >= dev->attached_devices)
-		return -ENOMSG;
+		goto end_error;
 	if (landdev < 0)
-		return -ENOMSG;
+		goto end_error;
 	dev->backdev[0]->devmagic->dtapolicy.sequential_landing = landdev;
 	kfree(cpybuf);
 	return s;
+
+end_error:
+        kfree(cpybuf);
+        return -ENOMSG;
 }
 
 static ssize_t tier_attr_migrate_block_store(struct tier_device *dev,

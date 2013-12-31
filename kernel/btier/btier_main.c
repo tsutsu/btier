@@ -153,7 +153,6 @@ void btier_unlock(struct tier_device *dev)
 {
 	atomic_set(&dev->migrate, 0);
 	mutex_unlock(&dev->qlock);
-        //atomic_set(&dev->wqlock, 0);
 }
 
 void btier_clear_statistics(struct tier_device *dev)
@@ -404,8 +403,7 @@ static int read_tiered(struct tier_device *dev, char *data,
 					   data + done, size,
 					   binfo->offset + block_offset);
 		}
-                if (binfo)
-		      kfree(binfo);
+		kfree(binfo);
 		done += size;
 		if (res != 0)
 			break;
@@ -468,8 +466,7 @@ static int write_tiered(struct tier_device *dev, char *data, unsigned int len,
                         clear_debug_info(dev, PREALLOCBLOCK);
 			domig = 0;
 			if (res != 0) {
-                                if (binfo) 
-                                    kfree(binfo);
+                                kfree(binfo);
 				pr_crit("Failed to allocate_block\n");
 				return res;
 			}
@@ -485,8 +482,7 @@ static int write_tiered(struct tier_device *dev, char *data, unsigned int len,
 				    data + done, size,
 				    binfo->offset + block_offset);
                 clear_debug_info(dev, REALWRITE);
-                if (binfo) 
-		      kfree(binfo);
+		kfree(binfo);
 		done += size;
 		if (res != 0)
 			break;
@@ -839,26 +835,26 @@ static void discard_on_real_device(struct tier_device *dev,
  * return when it does not
  */
 	dq = bdev_get_queue(bdev);
-	if (!blk_queue_discard(dq))
-		return;
+	if (blk_queue_discard(dq)) {
+  	 	sector_size = bdev_logical_block_size(bdev);
+		devsectors = get_capacity(bdev->bd_disk);
 
-	sector_size = bdev_logical_block_size(bdev);
-	devsectors = get_capacity(bdev->bd_disk);
+		sector = binfo->offset / sector_size;
+		if (sector * sector_size < binfo->offset)
+			sector++;
 
-	sector = binfo->offset / sector_size;
-	if (sector * sector_size < binfo->offset)
-		sector++;
-
-	endoffset = binfo->offset + BLKSIZE;
-	endsector = endoffset / sector_size;
-	nr_sects = endsector - sector;
-	ret = blkdev_issue_discard(bdev, sector, nr_sects, GFP_NOFS, flags);
-	if (0 == ret)
-		pr_debug
-		    ("discarded : device %s : sector %llu, nrsects %llu,sectorsize %u\n",
-		     backdev->devmagic->fullpathname,
-		     (unsigned long long)sector, (unsigned long long)nr_sects,
-		     sector_size);
+		endoffset = binfo->offset + BLKSIZE;
+		endsector = endoffset / sector_size;
+		nr_sects = endsector - sector;
+		ret = blkdev_issue_discard(bdev, sector, nr_sects, GFP_NOFS, flags);
+		if (0 == ret)
+			pr_debug
+			    ("discarded : device %s : sector %llu, nrsects %llu,sectorsize %u\n",
+			     backdev->devmagic->fullpathname,
+			     (unsigned long long)sector, (unsigned long long)nr_sects,
+			     sector_size);
+        }
+        bdput(bdev);
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,0,0)
@@ -886,21 +882,20 @@ static void tier_discard(struct tier_device *dev, u64 offset, unsigned int size)
 
 	for (blocknr = start; blocknr < lastblocknr; blocknr++) {
 		binfo = get_blockinfo(dev, blocknr, 0);
-		if (dev->inerror)
+		if (dev->inerror) {
                         if (binfo)
                             kfree(binfo);
 			break;
-		if (binfo->device == 0) {
-			kfree(binfo);
-			continue;
-		}
-		pr_debug("really discard blocknr %llu at offset %llu size %u\n",
-			 blocknr, offset, size);
-		clear_dev_list(dev, binfo);
-		reset_counters_on_migration(dev, binfo);
-		discard_on_real_device(dev, binfo);
-		memset(binfo, 0, sizeof(struct blockinfo));
-		write_blocklist(dev, blocknr, binfo, WA);
+                }
+		if (binfo->device != 0) {
+			pr_debug("really discard blocknr %llu at offset %llu size %u\n",
+				 blocknr, offset, size);
+			clear_dev_list(dev, binfo);
+			reset_counters_on_migration(dev, binfo);
+			discard_on_real_device(dev, binfo);
+			memset(binfo, 0, sizeof(struct blockinfo));
+			write_blocklist(dev, blocknr, binfo, WA);
+                }
 		kfree(binfo);
 	}
 }
@@ -1184,6 +1179,10 @@ static int copyblock(struct tier_device *dev, struct blockinfo *newdevice,
 	if (0 == newdevice->device)
 		return 0;
 	buffer = vzalloc(BLKSIZE);
+        if (!buffer) {
+              pr_err("copyblock: vzalloc failed, cancel operation\n");
+              return 0; 
+        } 
 	tier_file_read(dev, olddevice->device - 1,
 		       buffer, BLKSIZE, olddevice->offset);
 	tier_file_write(dev, newdevice->device - 1,
@@ -1846,28 +1845,31 @@ static void repair_bitlists(struct tier_device *dev)
 		binfo = get_blockinfo(dev, blocknr, 0);
 		if (dev->inerror)
 			return;
-		if (0 == binfo->device)
-			continue;
-		if (binfo->device > dev->attached_devices) {
-			pr_err
-			    ("repair_bitlists : cleared corrupted blocklist entry for blocknr %llu\n",
-			     blocknr);
-			memset(binfo, 0, sizeof(struct blockinfo));
-			continue;
-		}
-		if (BLKSIZE + binfo->offset >
-		    dev->backdev[binfo->device - 1]->devicesize) {
-			pr_err
-			    ("repair_bitlists : cleared corrupted blocklist entry for blocknr %llu\n",
-			     blocknr);
-			memset(binfo, 0, sizeof(struct blockinfo));
-			continue;
-		}
-		relative_offset =
-		    binfo->offset - dev->backdev[binfo->device -
-						 1]->startofdata;
-		mark_offset_as_used(dev, binfo->device - 1, relative_offset);
-		dev->backdev[i]->free_offset = relative_offset >> BLKBITS;
+		if (0 != binfo->device) {
+			if (binfo->device > dev->attached_devices) {
+				pr_err
+				    ("repair_bitlists : cleared corrupted blocklist entry for blocknr %llu\n",
+				     blocknr);
+				memset(binfo, 0, sizeof(struct blockinfo));
+                                kfree(binfo);
+				continue;
+			}
+			if (BLKSIZE + binfo->offset >
+			    dev->backdev[binfo->device - 1]->devicesize) {
+				pr_err
+				    ("repair_bitlists : cleared corrupted blocklist entry for blocknr %llu\n",
+				     blocknr);
+				memset(binfo, 0, sizeof(struct blockinfo));
+                                kfree(binfo);
+				continue;
+			}
+			relative_offset =
+			    binfo->offset - dev->backdev[binfo->device -
+							 1]->startofdata;
+			mark_offset_as_used(dev, binfo->device - 1, relative_offset);
+			dev->backdev[i]->free_offset = relative_offset >> BLKBITS;
+                }
+                kfree(binfo);
 	}
 }
 
@@ -1908,6 +1910,7 @@ char *btier_uuid(struct tier_device *dev)
 		kfree(thash);
 	}
 	asc = uuid_hash(xbuf, hashlen);
+        kfree(xbuf);
 	return asc;
 end_error:
 	kfree(xbuf);
@@ -1922,14 +1925,19 @@ static int order_devices(struct tier_device *dev)
 	int clean = 1;
 	struct backing_device *backdev;
 	struct data_policy *dtapolicy;
+        static struct devicemagic *devmagic;
 	char *zhash, *uuid;
+        int res = -ENOMEM;
+        
 
 	zhash = kzalloc(TIGER_HASH_LEN, GFP_KERNEL);
-	if (!zhash)
-		goto end_error;
+	if (!zhash) {
+                tiererror(dev, "order_devices : alloc failed");
+		return res;
+        }
 	backdev = kzalloc(sizeof(*backdev), GFP_KERNEL);
 	if (!backdev) {
-		kfree(zhash);
+                tiererror(dev, "order_devices : alloc failed");
 		goto end_error;
 	}
 
@@ -1937,7 +1945,7 @@ static int order_devices(struct tier_device *dev)
 	for (i = 0; i < dev->attached_devices; i++) {
 		dev->backdev[i]->devmagic = read_device_magic(dev, i);
 		if (!dev->backdev[i]->devmagic) {
-			kfree(backdev);
+                        tiererror(dev, "order_devices : alloc failed");
 			goto end_error;
 		}
 		if (i != dev->backdev[i]->devmagic->device)
@@ -1947,8 +1955,12 @@ static int order_devices(struct tier_device *dev)
 /* Check and swap */
 	if (swap) {
 		for (i = 0; i < dev->attached_devices; i++) {
-			dev->backdev[i]->devmagic = read_device_magic(dev, i);
-			newnr = dev->backdev[i]->devmagic->device;
+			devmagic = read_device_magic(dev, i);
+                        if (!devmagic) {
+                             tiererror(dev, "order_devices : alloc failed");
+                             goto end_error;
+                        }
+			newnr = devmagic->device;
 			if (i != newnr) {
 				memcpy(backdev, dev->backdev[i],
 				       sizeof(struct backing_device));
@@ -1957,6 +1969,7 @@ static int order_devices(struct tier_device *dev)
 				memcpy(dev->backdev[newnr], backdev,
 				       sizeof(struct backing_device));
 			}
+                        kfree(devmagic);
 		}
 	}
 /* Mark as inuse */
@@ -1976,9 +1989,11 @@ static int order_devices(struct tier_device *dev)
 			   TIGER_HASH_LEN)) {
 			tiererror(dev,
 				  "order_devices : incorrect device assembly");
-			kfree(backdev);
-			return -EIO;
+			res=-EIO;
+                        kfree(uuid);
+                        goto end_error;
 		}
+                kfree(uuid);
 		dev->backdev[i]->devmagic->clean = DIRTY;
 		write_device_magic(dev, i);
 		dtapolicy = &dev->backdev[i]->devmagic->dtapolicy;
@@ -2002,11 +2017,15 @@ static int order_devices(struct tier_device *dev)
 	if (!clean)
 		repair_bitlists(dev);
 	kfree(backdev);
+        kfree(zhash);
 	return 0;
 
 end_error:
-	tiererror(dev, "order_devices : alloc failed");
-	return -ENOMEM;
+        if (backdev)
+            kfree(backdev);
+        if (zhash)
+            kfree(zhash);
+	return res;
 }
 
 static void register_new_device_size(struct tier_device *dev)
