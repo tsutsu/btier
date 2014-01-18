@@ -140,6 +140,7 @@ void backup_device_magic(int fd, u64 total_device_size,
 
 	fsp = as_sprintf("%s%i", sp, devicenr);
 	sfd = open(fsp, mode, 0600);
+	free(fsp);
 	if (sfd < 0)
 		die_syserr();
 	memset(&magic, 0, sizeof(struct devicemagic));
@@ -149,7 +150,6 @@ void backup_device_magic(int fd, u64 total_device_size,
 	res = s_pwrite(sfd, &magic, sizeof(magic), 0);
 	if (res != sizeof(magic))
 		die_syserr();
-	free(fsp);
 }
 
 void restore_device_magic(int fd, u64 total_device_size,
@@ -164,6 +164,7 @@ void restore_device_magic(int fd, u64 total_device_size,
 
 	fsp = as_sprintf("%s%i", sp, devicenr);
 	sfd = open(fsp, mode, 0600);
+	free(fsp);
 	if (sfd < 0)
 		die_syserr();
 	memset(&magic, 0, sizeof(struct devicemagic));
@@ -173,7 +174,6 @@ void restore_device_magic(int fd, u64 total_device_size,
 	res = s_pwrite(fd, &magic, sizeof(magic), 0);
 	if (res != sizeof(magic))
 		die_syserr();
-	free(fsp);
 }
 
 void backup_list(int fd, u64 size, u64 soffset, char *type, int device)
@@ -189,21 +189,25 @@ void backup_list(int fd, u64 size, u64 soffset, char *type, int device)
 
 	fsp = as_sprintf("%s%s%i", sp, type, device);
 	sfd = open(fsp, mode, 0600);
+	free(fsp);
 	if (sfd < 0)
 		die_syserr();
 	block = s_malloc(BLKSIZE);
 	memset(block, 0, BLKSIZE);
 	while (end_offset > start_offset) {
 		res = s_pread(fd, block, BLKSIZE, start_offset);
-		if (res != BLKSIZE)
+		if (res != BLKSIZE) {
+                        free(block);
 			die_syserr();
+                }
 		res = s_pwrite(sfd, block, BLKSIZE, start_offset - soffset);
-		if (res != BLKSIZE)
+		if (res != BLKSIZE) {
+                        free(block);
 			die_syserr();
+                }
 		start_offset += BLKSIZE;
 	}
 	free(block);
-	free(fsp);
 	close(sfd);
 }
 
@@ -240,7 +244,6 @@ void restore_list(int fd, u64 size, u64 soffset, char *type, int device)
 
 int tier_set_fd(int fd, char *datafile, int devicenr)
 {
-	struct fd_s fds;
 	int res;
 	int ffd;
 	int mode = O_RDWR | O_NOATIME;
@@ -251,12 +254,10 @@ int tier_set_fd(int fd, char *datafile, int devicenr)
 	struct devicemagic tier_magic;
 	u64 soffset = 0;
 	int header_size = TIER_HEADERSIZE;
-	int i;
 
-	fds.fd = open(datafile, mode, 0600);
-	if (i < 0)
+	ffd = open(datafile, mode, 0600);
+	if (ffd < 0)
 		return -1;
-	ffd = fds.fd;
 	if (-1 == fstat(ffd, &stbuf)) {
 		fprintf(stderr, "Failed to stat %s\n", datafile);
 		close(ffd);
@@ -267,6 +268,7 @@ int tier_set_fd(int fd, char *datafile, int devicenr)
 		if (-1 == devsize) {
 			fprintf(stderr, "Error while opening %llu : %s\n",
 				devsize, strerror(errno));
+		        close(ffd);
 			return -1;
 		}
 	} else {
@@ -276,6 +278,7 @@ int tier_set_fd(int fd, char *datafile, int devicenr)
 	if (devsize < 1048576) {
 		fprintf(stderr, "Blockdevice %s with size 0x%llx is to small\n",
 			datafile, devsize);
+		close(ffd);
 		return -1;
 	}
 
