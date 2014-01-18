@@ -271,7 +271,7 @@ static char *null_term_buf(const char *buf, size_t s)
 	char *cpybuf;
 
 	cpybuf = kzalloc(s + 1, GFP_KERNEL);
-	if (NULL == cpybuf)
+	if (!cpybuf)
 		return NULL;
 	memcpy(cpybuf, buf, s);
 
@@ -389,8 +389,10 @@ static ssize_t tier_attr_migration_policy_store(struct tier_device *dev,
 	unsigned int max_age;
 	unsigned int hit_collecttime;
 
-	char *a, *p, *cur;
-	char *devicename;
+	char *cur = NULL;
+        char *a = NULL;
+        char *p = NULL;
+	char *devicename = NULL;
 	char *cpybuf;
 
 	cpybuf = null_term_buf(buf, s);
@@ -401,13 +403,13 @@ static ssize_t tier_attr_migration_policy_store(struct tier_device *dev,
 	if (!p)
 		goto end_error;
 	a = kzalloc(p - cpybuf + 1, GFP_KERNEL);
+        if (!a)
+                goto end_error;
 	memcpy(a, cpybuf, p - cpybuf);
 	res = sscanf(a, "%u", &devicenr);
-	if (res != 1)
+        kfree(a);
+	if (res != 1 || devicenr < 0 || devicenr >= dev->attached_devices)
 		goto end_error;
-	if (devicenr < 0 || devicenr >= dev->attached_devices)
-		goto end_error;
-	kfree(a);
 	a = p;
 
 	while (a[0] == ' ')
@@ -416,11 +418,14 @@ static ssize_t tier_attr_migration_policy_store(struct tier_device *dev,
 	if (!p)
 		goto end_error;
 	devicename = kzalloc(p - cpybuf + 1, GFP_KERNEL);
+        if (!devicename) {
+                goto end_error;
+        }
 	memcpy(devicename, a, p - a);
 	if (0 !=
 	    strcmp(devicename,
 		   dev->backdev[devicenr]->fds->f_dentry->d_name.name)) {
-		kfree(devicename);
+	        kfree(devicename);
 		goto end_error;
 	}
 	kfree(devicename);

@@ -189,13 +189,12 @@ int tier_set_fd(int fd, char *datafile, int devicenr)
 	struct devicemagic tier_magic;
 	u64 soffset = 0;
 	int header_size = TIER_HEADERSIZE;
-	int i;
 
 	mode = O_RDWR | O_NOATIME;
 	if (mkoptions.sync)
 		mode |= O_SYNC;
 	fds.fd = open(datafile, mode, 0600);
-	if (i < 0)
+	if (fds.fd < 0)
 		return -1;
 	ffd = fds.fd;
 	if (-1 == fstat(ffd, &stbuf)) {
@@ -208,6 +207,7 @@ int tier_set_fd(int fd, char *datafile, int devicenr)
 		if (-1 == devsize) {
 			fprintf(stderr, "Error while opening %llu : %s\n",
 				devsize, strerror(errno));
+		        close(ffd);
 			return -1;
 		}
 	} else {
@@ -217,6 +217,7 @@ int tier_set_fd(int fd, char *datafile, int devicenr)
 	if (devsize < 1048576) {
 		fprintf(stderr, "Blockdevice %s with size 0x%llx is to small\n",
 			datafile, devsize);
+		close(ffd);
 		return -1;
 	}
 

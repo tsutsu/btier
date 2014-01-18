@@ -15,7 +15,7 @@
 
 #define TRUE 1
 #define FALSE 0
-#define TIER_VERSION "1.2.0"
+#define TIER_VERSION "1.1.3"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Mark Ruijter");
@@ -167,17 +167,17 @@ void btier_clear_statistics(struct tier_device *dev)
 
 	for (curblock = 0; curblock < blocks; curblock++) {
 		binfo = get_blockinfo(dev, curblock, 0);
-		if (dev->inerror)
+		if (dev->inerror) {
                         if (binfo)
                             kfree(binfo);
 			break;
+                }
 		if (binfo->device != 0) {
 			binfo->readcount = 0;
 			binfo->writecount = 0;
 			(void)write_blocklist(dev, curblock, binfo, WC);
 		}
 		kfree(binfo);
-
 	}
 	for (i = 0; i < dev->attached_devices; i++) {
 		dmagic = dev->backdev[i]->devmagic;
@@ -651,7 +651,6 @@ struct blockinfo *get_blockinfo(struct tier_device *dev, u64 blocknr,
 	memcpy(binfo, backdev->blocklist[blocknr], sizeof(*binfo));
 	if (0 != binfo->device) {
 		if (!binfo_sanity(dev, binfo)) {
-			kfree(binfo);
 			binfo = NULL;
 			goto err_ret;
 		}
@@ -1919,7 +1918,7 @@ end_error:
 
 static int order_devices(struct tier_device *dev)
 {
-	int swap;
+	int swap = 0;
 	int i;
 	int newnr;
 	int clean = 1;
@@ -2009,11 +2008,12 @@ static int order_devices(struct tier_device *dev)
 		dtapolicy->sequential_landing = 0;
 	if (0 == dtapolicy->migration_interval)
 		dtapolicy->migration_interval = MIGRATE_INTERVAL;
-	if (!dev->writethrough)
-		dev->writethrough = dev->backdev[0]->devmagic->writethrough;
-	if (dev->writethrough)
-		pr_info("write-through (sync) io selected\n");
-	dev->backdev[0]->devmagic->writethrough = dev->writethrough;
+        if (!dev->writethrough) {
+                dev->writethrough=dev->backdev[0]->devmagic->writethrough;
+        } else {
+                pr_info("write-through (sync) io selected\n");
+                dev->backdev[0]->devmagic->writethrough=dev->writethrough;
+        }
 	if (!clean)
 		repair_bitlists(dev);
 	kfree(backdev);
@@ -2207,7 +2207,7 @@ static int tier_set_fd(struct tier_device *dev, struct fd_s *fds,
 		       struct backing_device *backdev)
 {
 	int error = -EBADF;
-	struct file *file;
+	struct file *file = NULL;
 
 	file = fget(fds->fd);
 	if (!file)
@@ -2222,12 +2222,12 @@ static int tier_set_fd(struct tier_device *dev, struct fd_s *fds,
 	/* btier disables readahead when it detects a random io pattern
 	   it restores the original when the pattern becomes sequential */
 	backdev->ra_pages = file->f_ra.ra_pages;
-out:
 	if (file->f_flags & O_SYNC) {
 		dev->writethrough = 1;
 		/* Store this persistent on unload */
 		file->f_flags ^= O_SYNC;
 	}
+out:
 	return error;
 }
 
@@ -2758,13 +2758,13 @@ static long tier_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			break;
 		if (copy_from_user(dname, (char __user *)arg, devlen - 1)) {
 			err = -EFAULT;
-			break;
-		}
-		err = tier_device_count();
-		err = del_tier_device(dname);
+		} else {
+ 		 	err = tier_device_count();
+     	 		err = del_tier_device(dname);
+			if (0 == err)
+				device = NULL;
+              	}
 		kfree(dname);
-		if (0 == err)
-			device = NULL;
 		break;
 	default:
 		err = dev->ioctl ? dev->ioctl(dev, cmd, arg) : -EINVAL;
@@ -2825,4 +2825,5 @@ static void __exit tier_exit(void)
 
 module_init(tier_init);
 module_exit(tier_exit);
+
 
