@@ -10,7 +10,9 @@ btier_setup - The setup utility for BTIER
 BTIER       - A blockdevice that provides automated tiered storage
 .SH SYNTAX
 .nf
-\fBAttach\fR : ./btier_setup -f datadev[:datadev:datadev] -s(sync / writethrough) -c(create) -h(help)]
+\fBAttach\fR : ./btier_setup -f datadev[:datadev:datadev] -s(sync / writethrough) 
+		-c(create) -h(help) -B(write direct) 
+		-V(write using vfs)
 \fBDetach :\fR ./btier_setup -d /dev/tier_device_name
 .fi
 .SH VERSION
@@ -27,6 +29,10 @@ Specify either a blockdevice or a regular file. When regular file is used it mus
 When -s is specified all writes received by btier will be written synchronously to the underlying devices
 .IP -z
 Specifies the sectorsize. Valid options are 512..4096 bytes.
+.IP -B
+Do not use vfs, instead use bio's when the underlying device is a real blockdevice. When the underlying device is a file vfs will still be used.
+.IP -V
+Use vfs even when the underlying device is a real block device.
 .nf
 .PP
 Email bug reports to

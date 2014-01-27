@@ -25,6 +25,7 @@ struct backing_device {
 	u64 startofbitlist;
 	u64 startofblocklist;
 	char *datafile;
+        int use_bio;
 };
 
 struct option_info {
@@ -37,6 +38,7 @@ struct option_info {
 	int backdev_count;
 	u64 total_device_size;
 	u64 bitlistsize_total;
+        int use_bio;
 };
 
 void *s_malloc(size_t size)
@@ -148,6 +150,7 @@ void write_device_magic(int fd, u64 total_device_size,
 	magic.blocklistsize = blocklistsize;
 	magic.startofblocklist = bdev->startofblocklist;
 	magic.startofbitlist = bdev->startofbitlist;
+        magic.use_bio = mkoptions.use_bio;
 	if (strlen(bdev->datafile) > 1024)
 		exit(-ENAMETOOLONG);
 	memcpy(&magic.fullpathname, bdev->datafile, strlen(bdev->datafile));
@@ -193,6 +196,7 @@ int tier_set_fd(int fd, char *datafile, int devicenr)
 	mode = O_RDWR | O_NOATIME;
 	if (mkoptions.sync)
 		mode |= O_SYNC;
+        fds.use_bio = mkoptions.use_bio;
 	fds.fd = open(datafile, mode, 0600);
 	if (fds.fd < 0)
 		return -1;
@@ -323,7 +327,7 @@ int tier_setup(int op, int fd, int devicenr)
 void usage(char *name)
 {
 	printf
-	    ("Create : %s -f datadev[:datadev:datadev] [-z sectorsize(512..4096) -c(create) -s(sync) -h(help)]\n",
+	    ("Create : %s -f datadev[:datadev:datadev] [-z sectorsize(512..4096) -c(create) -s(sync) -h(help) -B(bio) -V(vfs)]\n",
 	     name);
 	printf
 	    ("         datadevX can either be a path to a file or a blockdevice. No more then 16 devices are supported.\n");
@@ -359,8 +363,14 @@ int get_opts(int argc, char *argv[])
 
 	int c, ret = 0;
 
-	while ((c = getopt(argc, argv, "cd:bhcsf:m:z:")) != -1)
+	while ((c = getopt(argc, argv, "VBcd:bhcsf:m:z:")) != -1)
 		switch (c) {
+                case 'B':
+                        mkoptions.use_bio = USE_BIO;
+                        break;
+                case 'V':
+                        mkoptions.use_bio = USE_VFS;
+                        break;
 		case 'c':
 			mkoptions.create = 1;
 			break;
@@ -426,6 +436,7 @@ int main(int argc, char *argv[])
 	mkoptions.sectorsize = 0;
 	mkoptions.total_device_size = 0;
 	mkoptions.bitlistsize_total = 0;
+        mkoptions.use_bio = 0;
 	struct stat stdta;
 	struct stat device;
 	int mode = O_RDWR | O_NOATIME;
@@ -485,8 +496,8 @@ int main(int argc, char *argv[])
 				if (ffd < 0) {
 					fprintf(stderr,
 						"Failed to open file %s\n",
-						mkoptions.
-						backdev[count]->datafile);
+						mkoptions.backdev[count]->
+						datafile);
 					exit(-1);
 				}
 			}
@@ -559,13 +570,15 @@ int main(int argc, char *argv[])
 			    ("write_device_magic device      : %u\n     size                      : 0x%llx (%llu)\n",
 			     count, mkoptions.total_device_size,
 			     mkoptions.total_device_size);
-			write_device_magic(mkoptions.
-					   backdev[count]->tier_dta_file,
+			write_device_magic(mkoptions.backdev[count]->
+					   tier_dta_file,
 					   mkoptions.total_device_size, count,
 					   mkoptions.blocklistsize,
 					   mkoptions.backdev[count]);
 		}
 	}
+        if ((mkoptions.create) && (mkoptions.use_bio == 0))
+            mkoptions.use_bio=USE_VFS;
 	ret = tier_setup(TIER_REGISTER, fd, 0);
 	if (0 != ret)
 		die_ioctlerr("ioctl TIER_REGISTER failed\n");

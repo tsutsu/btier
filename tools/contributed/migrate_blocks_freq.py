@@ -311,7 +311,7 @@ def move_block(blocknr,newdev):
           res=migrate_block(blocknr, newdev)
           if res != errno.EAGAIN:
              break
-          time.sleep (1/1000)
+          time.sleep (.1)
 
     lock.acquire()
     numMigrateThreads -= 1

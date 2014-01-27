@@ -52,6 +52,7 @@ typedef unsigned long u32;
 #define BLKSIZE 1048576		/*Moving smaller blocks then 4M around
 				   will lead to fragmentation */
 #define BLKBITS 20		/*Adjust when changing BLKSIZE */
+#define PAGE_SHIFT 12           /*4k page size */
 #define TIER_NAME_SIZE     64	/* Max lenght of the filenames */
 #define TIER_SET_FD        0xFE00
 #define TIER_SET_DEVSZ     0xFE03
@@ -70,7 +71,7 @@ typedef unsigned long u32;
 #define WA 3			/* All: Cache and disk */
 
 #define BTIER_MAX_DEVS 26
-#define BTIER_MAX_INFLIGHT 128
+#define BTIER_MAX_INFLIGHT 256
 
 #define TIGER_HASH_LEN 24
 
@@ -94,6 +95,9 @@ typedef unsigned long u32;
 #define ALLOCATED 0xff
 #define UNALLOCATED 0x00
 #define MAXPAGESHOW 20
+
+#define USE_BIO 2
+#define USE_VFS 1
 
 #define TIERREAD 1
 #define TIERWRITE 2
@@ -148,26 +152,6 @@ struct blockinfo {
 	unsigned int writecount;
 } __attribute__ ((packed));
 
-/* 4k space for subvolume header */
-struct subvolume {
-	u64 id;
-	u64 native_id;
-	/* subvolumes are sparse 
-	   devicesize is rounded to 1 MB */
-	u64 devicesize;
-	/* metadata of the device within the tier device 
-	   At this offset a translation table starts which
-	   relates a subvolume blocknr to a btier blocknr */
-	u64 metaoffset;
-	/* The metadata will consume 16 bytes per 1M block */
-} __attribute__ ((packed));
-
-/* Map subvolume blocks to btier blocks */
-struct subvolmeta {
-	u64 childblk;
-	u64 parentblk;
-} __attribute__ ((packed));
-
 struct devicemagic {
 	unsigned int magic;
 	unsigned int device;
@@ -190,11 +174,13 @@ struct devicemagic {
 	char fullpathname[1025];
 	struct data_policy dtapolicy;
 	char uuid[24];
-	unsigned int writethrough;
+        unsigned int writethrough;
+        unsigned int use_bio;
 } __attribute__ ((packed));
 
 struct fd_s {
 	int fd;
+        int use_bio;
 };
 
 #ifdef __KERNEL__
@@ -221,6 +207,7 @@ struct backing_device {
 	struct blockinfo **blocklist;
 	u8 *bitlist;
 	unsigned int ra_pages;
+        struct block_device *bdev;
 };
 
 struct tier_stats {
@@ -298,6 +285,7 @@ struct tier_device {
 	u64 user_selected_blockinfo;
 	int user_selected_ispaged;
 	unsigned int users;
+        int use_bio;
 };
 
 typedef struct {
@@ -309,10 +297,10 @@ typedef struct {
 	struct work_struct work;
 	struct tier_device *dev;
 	u64 offset;
-	int device;
-	void *buf;
-	int size;
-	struct page *bv_page;
+	unsigned int device;
+	void *data;
+	unsigned int size;
+        struct page *bv_page;
 } aio_work_t;
 
 void free_bitlists(struct tier_device *);
