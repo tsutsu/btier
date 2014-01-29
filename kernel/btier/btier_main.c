@@ -524,6 +524,12 @@ static int tier_write_page(struct tier_device *dev, unsigned int device,
 {
         struct block_device *bdev=dev->backdev[device]->bdev;
         struct bio *bio = bio_alloc(GFP_NOIO, 1);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,0,0)
+        int wt = WRITE_FLUSH_FUA;
+#else
+        int wt = WRITE;
+        bio->bi_flags = BIO_RW_BARRIER;
+#endif
         bio->bi_sector = offset >> 9;
         bio->bi_bdev = bdev;
         bio->bi_io_vec[0].bv_page = bvec->bv_page;
@@ -534,9 +540,9 @@ static int tier_write_page(struct tier_device *dev, unsigned int device,
         bio->bi_size = bvec->bv_len;
         bio->bi_end_io = bio_write_done;
         bio->bi_private = dev; 
-        bio->bi_rw=WRITE_FLUSH_FUA;
+        bio->bi_rw=wt;
         atomic_inc(&dev->aio_pending);
-        submit_bio(WRITE_FLUSH_FUA, bio);
+        submit_bio(wt, bio);
         return 0;
 }
 
@@ -560,6 +566,42 @@ static int tier_read_page(struct tier_device *dev, unsigned int device,
         submit_bio(READ_SYNC, bio);
         return 0;
 }
+
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(3,10,1)
+struct submit_bio_ret {
+        struct completion event;
+        int error;
+};
+
+static void submit_bio_wait_endio(struct bio *bio, int error)
+{
+        struct submit_bio_ret *ret = bio->bi_private;
+
+        ret->error = error;
+        complete(&ret->event);
+}
+
+/**
+ * submit_bio_wait - submit a bio, and wait until it completes
+ * @rw: whether to %READ or %WRITE, or maybe to %READA (read ahead)
+ * @bio: The &struct bio which describes the I/O
+ *
+ * Simple wrapper around submit_bio(). Returns 0 on success, or the error from
+ * bio_endio() on failure.
+ */
+int submit_bio_wait(int rw, struct bio *bio)
+{
+        struct submit_bio_ret ret;
+
+        bio->bi_flags |= BIO_RW_BARRIER;
+        init_completion(&ret.event);
+        bio->bi_private = &ret;
+        bio->bi_end_io = submit_bio_wait_endio;
+        submit_bio(rw, bio);
+        wait_for_completion(&ret.event);
+        return ret.error;
+}
+#endif
 
 static int tier_bio_io(struct tier_device *dev, unsigned int device,
                          char *buffer, unsigned int size, u64 offset, int rw)
