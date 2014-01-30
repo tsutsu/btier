@@ -15,7 +15,7 @@
 
 #define TRUE 1
 #define FALSE 0
-#define TIER_VERSION "1.2.0"
+#define TIER_VERSION "1.2.1"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Mark Ruijter");
@@ -443,7 +443,7 @@ static int read_tiered(struct tier_device *dev, char *data,
 			res = 0;
 		} else {
                         device=binfo->device - 1;
-                        if (dev->backdev[device]->bdev) {
+                        if (dev->backdev[device]->bdev && dev->use_bio) {
                                  res = tier_read_page(dev, device, bvec, binfo->offset + block_offset);
                         } else {
                             if (dev->iotype == RANDOM) {
@@ -709,9 +709,8 @@ static int write_tiered(struct tier_device *dev, char *data, unsigned int len,
 			size = len - done;
                 device=binfo->device - 1;
                 set_debug_info(dev, REALWRITE);
-                if (dev->backdev[device]->bdev) {
+                if (dev->backdev[device]->bdev && dev->use_bio) {
                         res = tier_write_page(dev, device, bvec, binfo->offset + block_offset);
-
                 } else {
 			res =
 		    		tier_file_write(dev, device,
