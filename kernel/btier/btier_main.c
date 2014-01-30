@@ -15,7 +15,7 @@
 
 #define TRUE 1
 #define FALSE 0
-#define TIER_VERSION "1.2.1"
+#define TIER_VERSION "1.2.2"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Mark Ruijter");
@@ -388,9 +388,9 @@ static int tier_file_write(struct tier_device *dev, unsigned int device,
 	struct backing_device *backdev = dev->backdev[device];
 
 	set_fs(get_ds());
-        set_debug_info(dev, VFS_WRITE);
+        set_debug_info(dev, VFSWRITE);
 	bw = vfs_write(backdev->fds, buf, len, &pos);
-        clear_debug_info(dev, VFS_WRITE);
+        clear_debug_info(dev, VFSWRITE);
 	backdev->dirty = 1;
 	set_fs(old_fs);
 	if (likely(bw == len))
@@ -530,6 +530,7 @@ static int tier_write_page(struct tier_device *dev, unsigned int device,
         int wt = WRITE;
         bio->bi_flags = BIO_RW_BARRIER;
 #endif
+        set_debug_info(dev, BIOWRITE);
         bio->bi_sector = offset >> 9;
         bio->bi_bdev = bdev;
         bio->bi_io_vec[0].bv_page = bvec->bv_page;
@@ -543,6 +544,7 @@ static int tier_write_page(struct tier_device *dev, unsigned int device,
         bio->bi_rw=wt;
         atomic_inc(&dev->aio_pending);
         submit_bio(wt, bio);
+        clear_debug_info(dev, BIOWRITE);
         return 0;
 }
 
@@ -551,6 +553,7 @@ static int tier_read_page(struct tier_device *dev, unsigned int device,
 {
         struct block_device *bdev=dev->backdev[device]->bdev;
         struct bio *bio = bio_alloc(GFP_NOIO, 1);
+        set_debug_info(dev, BIOREAD);
         bio->bi_sector = offset >> 9;
         bio->bi_bdev = bdev;
         bio->bi_io_vec[0].bv_page = bvec->bv_page;
@@ -564,6 +567,7 @@ static int tier_read_page(struct tier_device *dev, unsigned int device,
         bio->bi_rw=READ_SYNC;
         atomic_inc(&dev->aio_pending);
         submit_bio(READ_SYNC, bio);
+        clear_debug_info(dev, BIOREAD);
         return 0;
 }
 
@@ -708,7 +712,6 @@ static int write_tiered(struct tier_device *dev, char *data, unsigned int len,
 		} else
 			size = len - done;
                 device=binfo->device - 1;
-                set_debug_info(dev, REALWRITE);
                 if (dev->backdev[device]->bdev && dev->use_bio == USE_BIO) {
                         res = tier_write_page(dev, device, bvec, binfo->offset + block_offset);
                 } else {
@@ -717,7 +720,6 @@ static int write_tiered(struct tier_device *dev, char *data, unsigned int len,
 					    data + done, size,
 					    binfo->offset + block_offset);
                 }
-                clear_debug_info(dev, REALWRITE);
 		kfree(binfo);
 		done += size;
 		if (res != 0)
@@ -741,9 +743,11 @@ static int tier_file_read(struct tier_device *dev, unsigned int device,
 	/* Disable readahead on random IO */
 	if (dev->iotype == RANDOM)
 		file->f_ra.ra_pages = 0;
+        set_debug_info(dev, VFSREAD);
 	set_fs(get_ds());
 	bw = vfs_read(file, buf, len, &pos);
 	set_fs(old_fs);
+        clear_debug_info(dev, VFSREAD);
 	file->f_ra.ra_pages = backdev->ra_pages;
 	if (likely(bw == len))
 		return 0;
@@ -1185,19 +1189,15 @@ static int tier_do_bio(struct tier_device *dev, struct bio *bio)
 		determine_iotype(dev, blocknr);
 		if (bio_rw(bio) == WRITE) {
 		        buffer = kmap(bvec->bv_page);
-                        set_debug_info(dev, PRESWRITE);
 			ret =
 			    write_tiered(dev, buffer + bvec->bv_offset,
 					 bvec->bv_len, offset, bvec);
 		        kunmap(bvec->bv_page);
-                        clear_debug_info(dev,PRESWRITE);
 		} else {
-                        set_debug_info(dev, PRESREAD);
 		        buffer = kmap(bvec->bv_page);
 			ret = read_tiered(dev,
 					  buffer + bvec->bv_offset,
 					  bvec->bv_len, offset, bvec);
-                        clear_debug_info(dev,PRESREAD);
 		}
 		if (ret < 0)
 			break;

@@ -122,17 +122,15 @@ typedef unsigned long u32;
 #ifndef MAX_PERFORMANCE
 enum states {
     IDLE           = 0,
-    PRERREAD       = 1,
-    PRESREAD       = 2,
-    PRERWRITE      = 4,
-    PRESWRITE      = 8,
+    BIOREAD        = 1,
+    VFSREAD        = 2,
+    VFSWRITE       = 4,
+    BIOWRITE       = 8,
     WAITAIOPENDING = 16,
     PRESYNC        = 32,
     PREBINFO       = 64,
     PREALLOCBLOCK  = 128,
-    REALWRITE      = 256,
-    DISCARD        = 512,
-    VFS_WRITE      = 1024
+    DISCARD        = 512
 };
 #endif
 
