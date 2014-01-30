@@ -443,7 +443,7 @@ static int read_tiered(struct tier_device *dev, char *data,
 			res = 0;
 		} else {
                         device=binfo->device - 1;
-                        if (dev->backdev[device]->bdev && dev->use_bio) {
+                        if (dev->backdev[device]->bdev && dev->use_bio == USE_BIO) {
                                  res = tier_read_page(dev, device, bvec, binfo->offset + block_offset);
                         } else {
                             if (dev->iotype == RANDOM) {
@@ -709,7 +709,7 @@ static int write_tiered(struct tier_device *dev, char *data, unsigned int len,
 			size = len - done;
                 device=binfo->device - 1;
                 set_debug_info(dev, REALWRITE);
-                if (dev->backdev[device]->bdev && dev->use_bio) {
+                if (dev->backdev[device]->bdev && dev->use_bio == USE_BIO) {
                         res = tier_write_page(dev, device, bvec, binfo->offset + block_offset);
                 } else {
 			res =
