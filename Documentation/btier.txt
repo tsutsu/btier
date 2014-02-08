@@ -227,7 +227,19 @@ When ptsync is enabled : echo 1 >/sys/block/sdtier[X]/tier/ptsync
 btier will flush all data including it's own metadata to disk when sync() is
 received.
 
-*NEW btier now also supports a write-through cache policy.
+btier now also supports a write-through cache policy.
 To enable : echo 1 >/sys/block/sdtier[X]/tier/writethrough
 Writethrough means that before returning to the user the data will have been flushed to disk.
 Effectively the same as issuing fsync() after every write.
+
+*NEW In btier-1.2.x
+btier can now avoid using vfs when an underlying device is a physical device.
+btier_setup -B will signal btier not to use vfs when possible. This may
+increase the overall speed to 170K IOPS when the underlying storage can handle that.
+
+*NEW In btier-1.2.2 and above.
+btier will recognize zero filled blocks and avoid writing these.
+A block withough metadata will be returned zero filled anyway.
+Therefore writing zero's to a not previously allocated part of the btier
+device will now reach speeds up to 1.1GB/sec.
+

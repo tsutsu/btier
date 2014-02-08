@@ -485,7 +485,7 @@ static inline void bio_read_done(struct bio *bio, int err)
 {
         struct tier_device *dev = bio->bi_private;
         if(err)
-            tiererror(dev, "write error\n");
+            tiererror(dev, "read error\n");
         atomic_dec(&dev->aio_pending);
         wake_up(&dev->aio_event);
         bio_put(bio);
@@ -658,11 +658,32 @@ static int tier_bio_io(struct tier_device *dev, unsigned int device,
             __free_page(bvec->bv_page);
         }
         bio_put(bio);
-        if (res != 0) {
+        if (res) {
             tiererror(dev, "tier_do_bio : read/write failed\n");
             return -EIO;
         }
         return res; 
+}
+
+static int islikely_zero_filled(char *data, unsigned int size){
+        if (data[0] == 0 && data[size - 1] == 0 ) return 1;
+        return 0;
+}
+
+static int zero_filled_block(struct tier_device *dev, char *data, unsigned int size){
+        int data_offset = 0;
+        int res = 0;
+        int cmplen = PAGE_SIZE;
+
+        if (!islikely_zero_filled(data, size)) return 0;
+        while (data_offset < size) {
+           if (data_offset + cmplen > size ) 
+               cmplen = data_offset - size;
+           res=memcmp(data + data_offset, dev->zero_buf, cmplen);
+           if (res) return 0;
+           data_offset += PAGE_SIZE;
+        }
+        return 1;
 }
 
 static int write_tiered(struct tier_device *dev, char *data, unsigned int len,
@@ -672,7 +693,6 @@ static int write_tiered(struct tier_device *dev, char *data, unsigned int len,
 	u64 blocknr;
 	unsigned int block_offset;
 	int res = 0;
-	int domig;
 	unsigned int size = 0;
 	unsigned int done = 0;
 	u64 curoff;
@@ -695,22 +715,27 @@ static int write_tiered(struct tier_device *dev, char *data, unsigned int len,
 			res = -EIO;
 			break;
 		}
+                if (len - done + block_offset > BLKSIZE) {
+                        size = BLKSIZE - block_offset;
+                } else
+                        size = len - done;
 		if (0 == binfo->device) {
+                        /* No need to allocate a new block when it is zero filled*/
+                        if (zero_filled_block(dev, data + done , size)) {
+                             res = 0;
+                             done += size;
+                             kfree(binfo);
+                             continue;
+                        }
                         set_debug_info(dev, PREALLOCBLOCK);
 			res = allocate_block(dev, blocknr, binfo);
                         clear_debug_info(dev, PREALLOCBLOCK);
-			domig = 0;
 			if (res != 0) {
                                 kfree(binfo);
 				pr_crit("Failed to allocate_block\n");
 				return res;
 			}
-		} else
-			domig = 1;
-		if (len - done + block_offset > BLKSIZE) {
-			size = BLKSIZE - block_offset;
-		} else
-			size = len - done;
+		}
                 device=binfo->device - 1;
                 if (dev->backdev[device]->bdev && dev->use_bio == USE_BIO) {
                         res = tier_write_page(dev, device, bvec, binfo->offset + block_offset);

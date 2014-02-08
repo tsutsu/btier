@@ -284,6 +284,7 @@ struct tier_device {
 	int user_selected_ispaged;
 	unsigned int users;
         int use_bio;
+        char zero_buf[PAGE_SIZE];
 };
 
 typedef struct {
