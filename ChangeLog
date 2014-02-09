@@ -1,3 +1,6 @@
+        release                 : 1.2.3 2014-02-09
+                                : Fix the use of a wrong pointer which could lead to data corruption
+                                : This is a regression of the zero filled block recognition
         release                 : 1.2.2 2014-02-08
                                 : Added zero filled block recognition and skip writing them when
                                 : possible. btier will return a block without meta data as zero
