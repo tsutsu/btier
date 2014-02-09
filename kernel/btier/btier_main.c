@@ -679,7 +679,7 @@ static int zero_filled_block(struct tier_device *dev, char *data, unsigned int s
         while (data_offset < size) {
            if (data_offset + cmplen > size ) 
                cmplen = data_offset - size;
-           res=memcmp(data + data_offset, dev->zero_buf, cmplen);
+           res=memcmp(data + data_offset, &dev->zero_buf, cmplen);
            if (res) return 0;
            data_offset += PAGE_SIZE;
         }
