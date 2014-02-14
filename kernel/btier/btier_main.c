@@ -15,7 +15,7 @@
 
 #define TRUE 1
 #define FALSE 0
-#define TIER_VERSION "1.2.3"
+#define TIER_VERSION "1.2.4"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Mark Ruijter");
@@ -524,12 +524,7 @@ static int tier_write_page(struct tier_device *dev, unsigned int device,
 {
         struct block_device *bdev=dev->backdev[device]->bdev;
         struct bio *bio = bio_alloc(GFP_NOIO, 1);
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,0,0)
-        int wt = WRITE_FLUSH_FUA;
-#else
         int wt = WRITE;
-        bio->bi_flags = BIO_RW_BARRIER;
-#endif
         set_debug_info(dev, BIOWRITE);
         bio->bi_sector = offset >> 9;
         bio->bi_bdev = bdev;
@@ -564,9 +559,9 @@ static int tier_read_page(struct tier_device *dev, unsigned int device,
         bio->bi_size = bvec->bv_len;
         bio->bi_end_io = bio_read_done;
         bio->bi_private = dev;
-        bio->bi_rw=READ_SYNC;
+        bio->bi_rw=READ;
         atomic_inc(&dev->aio_pending);
-        submit_bio(READ_SYNC, bio);
+        submit_bio(READ, bio);
         clear_debug_info(dev, BIOREAD);
         return 0;
 }
@@ -597,7 +592,11 @@ int submit_bio_wait(int rw, struct bio *bio)
 {
         struct submit_bio_ret ret;
 
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(3,0,0)
         bio->bi_flags |= BIO_RW_BARRIER;
+#else
+        bio->bi_flags |= REQ_FLUSH;
+#endif
         init_completion(&ret.event);
         bio->bi_private = &ret;
         bio->bi_end_io = submit_bio_wait_endio;
