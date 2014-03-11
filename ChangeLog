@@ -1,3 +1,6 @@
+        release                 : 1.2.5 2014-03-09
+                                : Fix exceeding max segment size of underlying blockdevice up-on
+                                : data migration
         release                 : 1.2.4 2014-02-15
                                 : Enable compilation on SleS11 and CentOS kernels
         release                 : 1.2.3 2014-02-09

@@ -15,7 +15,7 @@
 
 #define TRUE 1
 #define FALSE 0
-#define TIER_VERSION "1.2.4"
+#define TIER_VERSION "1.2.5"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Mark Ruijter");
@@ -662,6 +662,21 @@ static int tier_bio_io(struct tier_device *dev, unsigned int device,
             return -EIO;
         }
         return res; 
+}
+
+static int tier_bio_io_paged(struct tier_device *dev, unsigned int device,
+                         char *buffer, unsigned int size, u64 offset, int rw)
+{
+        unsigned int done;
+        unsigned int chunksize=PAGE_SIZE;
+        int res;
+
+        for(done=0; done < size; done += chunksize){
+            res=tier_bio_io(dev,device, buffer + done, chunksize, offset + done, rw);
+            if(res)
+                 break;
+        }
+        return res;
 }
 
 static int islikely_zero_filled(char *data, unsigned int size){
@@ -1350,7 +1365,7 @@ static int copyblock(struct tier_device *dev, struct blockinfo *newdevice,
         } 
 
         if (dev->backdev[olddevice->device - 1]->bdev && dev->use_bio == USE_BIO)
-            res = tier_bio_io(dev, olddevice->device - 1,
+            res = tier_bio_io_paged(dev, olddevice->device - 1,
                        buffer, BLKSIZE, olddevice->offset, READ);      
         else
 	    res = tier_file_read(dev, olddevice->device - 1,
@@ -1358,7 +1373,7 @@ static int copyblock(struct tier_device *dev, struct blockinfo *newdevice,
         if (res != 0) goto end_error;
 
         if (dev->backdev[newdevice->device - 1]->bdev && dev->use_bio == USE_BIO)
-            res = tier_bio_io(dev, newdevice->device - 1,
+            res = tier_bio_io_paged(dev, newdevice->device - 1,
 			    buffer, BLKSIZE, newdevice->offset, WRITE);
         else
 	    res = tier_file_write(dev, newdevice->device - 1,
