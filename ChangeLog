@@ -1,3 +1,6 @@
+        release                 : 1.2.6 2014-03-26
+                                : Revert the zero filled block recognition since it caused data
+                                : corruption. This was a real bad bug.
         release                 : 1.2.5 2014-03-09
                                 : Fix exceeding max segment size of underlying blockdevice up-on
                                 : data migration

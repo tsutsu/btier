@@ -15,7 +15,7 @@
 
 #define TRUE 1
 #define FALSE 0
-#define TIER_VERSION "1.2.5"
+#define TIER_VERSION "1.2.6"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Mark Ruijter");
@@ -679,27 +679,6 @@ static int tier_bio_io_paged(struct tier_device *dev, unsigned int device,
         return res;
 }
 
-static int islikely_zero_filled(char *data, unsigned int size){
-        if (data[0] == 0 && data[size - 1] == 0 ) return 1;
-        return 0;
-}
-
-static int zero_filled_block(struct tier_device *dev, char *data, unsigned int size){
-        int data_offset = 0;
-        int res = 0;
-        int cmplen = PAGE_SIZE;
-
-        if (!islikely_zero_filled(data, size)) return 0;
-        while (data_offset < size) {
-           if (data_offset + cmplen > size ) 
-               cmplen = data_offset - size;
-           res=memcmp(data + data_offset, &dev->zero_buf, cmplen);
-           if (res) return 0;
-           data_offset += PAGE_SIZE;
-        }
-        return 1;
-}
-
 static int write_tiered(struct tier_device *dev, char *data, unsigned int len,
 			u64 offset, struct bio_vec *bvec)
 {
@@ -734,13 +713,6 @@ static int write_tiered(struct tier_device *dev, char *data, unsigned int len,
                 } else
                         size = len - done;
 		if (0 == binfo->device) {
-                        /* No need to allocate a new block when it is zero filled*/
-                        if (zero_filled_block(dev, data + done , size)) {
-                             res = 0;
-                             done += size;
-                             kfree(binfo);
-                             continue;
-                        }
                         set_debug_info(dev, PREALLOCBLOCK);
 			res = allocate_block(dev, blocknr, binfo);
                         clear_debug_info(dev, PREALLOCBLOCK);
