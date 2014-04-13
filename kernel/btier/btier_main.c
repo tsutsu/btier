@@ -15,7 +15,7 @@
 
 #define TRUE 1
 #define FALSE 0
-#define TIER_VERSION "1.2.6"
+#define TIER_VERSION "1.2.7"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Mark Ruijter");
@@ -168,8 +168,6 @@ void btier_clear_statistics(struct tier_device *dev)
 	for (curblock = 0; curblock < blocks; curblock++) {
 		binfo = get_blockinfo(dev, curblock, 0);
 		if (dev->inerror) {
-                        if (binfo)
-                            kfree(binfo);
 			break;
                 }
 		if (binfo->device != 0) {
@@ -177,7 +175,6 @@ void btier_clear_statistics(struct tier_device *dev)
 			binfo->writecount = 0;
 			(void)write_blocklist(dev, curblock, binfo, WC);
 		}
-		kfree(binfo);
 	}
 	for (i = 0; i < dev->attached_devices; i++) {
 		dmagic = dev->backdev[i]->devmagic;
@@ -429,8 +426,6 @@ static int read_tiered(struct tier_device *dev, char *data,
 
 		binfo = get_blockinfo(dev, blocknr, TIERREAD);
 		if (dev->inerror) {
-                        if (binfo)
-		             kfree(binfo);
 			res = -EIO;
 			break;
 		}
@@ -460,7 +455,6 @@ static int read_tiered(struct tier_device *dev, char *data,
                             }
                         }
 		}
-		kfree(binfo);
 		done += size;
 		if (res != 0)
 			break;
@@ -703,8 +697,6 @@ static int write_tiered(struct tier_device *dev, char *data, unsigned int len,
 		binfo = get_blockinfo(dev, blocknr, TIERWRITE);
                 clear_debug_info(dev, PREBINFO);
 		if (dev->inerror) {
-                        if (binfo) 
-                                kfree(binfo);
 			res = -EIO;
 			break;
 		}
@@ -717,7 +709,6 @@ static int write_tiered(struct tier_device *dev, char *data, unsigned int len,
 			res = allocate_block(dev, blocknr, binfo);
                         clear_debug_info(dev, PREALLOCBLOCK);
 			if (res != 0) {
-                                kfree(binfo);
 				pr_crit("Failed to allocate_block\n");
 				return res;
 			}
@@ -731,7 +722,6 @@ static int write_tiered(struct tier_device *dev, char *data, unsigned int len,
 					    data + done, size,
 					    binfo->offset + block_offset);
                 }
-		kfree(binfo);
 		done += size;
 		if (res != 0)
 			break;
@@ -862,7 +852,6 @@ static int binfo_sanity(struct tier_device *dev, struct blockinfo *binfo)
 		     binfo->device, dev->attached_devices);
 		tiererror(dev,
 			  "get_blockinfo : binfo->device > dev->attached_devices");
-		kfree(binfo);
 		return 0;
 	}
 
@@ -871,7 +860,6 @@ static int binfo_sanity(struct tier_device *dev, struct blockinfo *binfo)
 		    ("Metadata corruption detected : device %u, offset %llu, devsize %llu\n",
 		     binfo->device, binfo->offset, backdev->devicesize);
 		tiererror(dev, "get_blockinfo : offset exceeds device size");
-		kfree(binfo);
 		return 0;
 	}
 	return 1;
@@ -892,14 +880,9 @@ struct blockinfo *get_blockinfo(struct tier_device *dev, u64 blocknr,
 
 	if (dev->inerror)
 		return NULL;
-	binfo = kzalloc(sizeof(struct blockinfo), GFP_NOFS);
-	if (!binfo) {
-		tiererror(dev, "alloc failed");
-		return NULL;
-	}
 /* random reads are multithreaded, so lock the blocklist cache up-on modification*/
 	spin_lock_irq(&dev->statlock);
-	memcpy(binfo, backdev->blocklist[blocknr], sizeof(*binfo));
+        binfo=backdev->blocklist[blocknr];
 	if (0 != binfo->device) {
 		if (!binfo_sanity(dev, binfo)) {
 			binfo = NULL;
@@ -1133,8 +1116,6 @@ static void tier_discard(struct tier_device *dev, u64 offset, unsigned int size)
 	for (blocknr = start; blocknr < lastblocknr; blocknr++) {
 		binfo = get_blockinfo(dev, blocknr, 0);
 		if (dev->inerror) {
-                        if (binfo)
-                            kfree(binfo);
 			break;
                 }
 		if (binfo->device != 0) {
@@ -1146,7 +1127,6 @@ static void tier_discard(struct tier_device *dev, u64 offset, unsigned int size)
 			memset(binfo, 0, sizeof(struct blockinfo));
 			write_blocklist(dev, blocknr, binfo, WA);
                 }
-		kfree(binfo);
 	}
 }
 #endif
@@ -1599,8 +1579,6 @@ static void walk_blocklist(struct tier_device *dev)
 		binfo = get_blockinfo(dev, curblock, 0);
 		if (dev->inerror) {
                         pr_err("walk_block_list stops, device is inerror\n");
-                        if (binfo)
-                            kfree(binfo);
 			break;
                 }
 		if (binfo->device != 0) {
@@ -1631,7 +1609,6 @@ static void walk_blocklist(struct tier_device *dev)
 				update_blocklist(dev, curblock, binfo);
 			}
 		}
-		kfree(binfo);
 		if (NORMAL_IO == atomic_read(&dev->wqlock)) {
 			mincount++;
 			if (mincount > 5 || res) {
@@ -1685,13 +1662,13 @@ void do_migrate_direct(struct tier_device *dev)
 		res = -EEXIST;
 		pr_err("Failed to migrate block %llu, already on device %i\n",
 		       blocknr, newdevice);
-		goto end_error_free;
+		goto end_error;
 	}
 	orgbinfo = kzalloc(sizeof(struct blockinfo), GFP_NOFS);
 	if (!orgbinfo) {
 		tiererror(dev, "alloc failed");
 		res = -ENOMEM;
-		goto end_error_free;
+		goto end_error;
 	}
 	memcpy(orgbinfo, binfo, sizeof(*binfo));
 	binfo->device = newdevice + 1;
@@ -1704,8 +1681,6 @@ void do_migrate_direct(struct tier_device *dev)
 	} else
 		pr_err("copyblock failed\n");
 	kfree(orgbinfo);
-end_error_free:
-	kfree(binfo);
 end_error:
 	btier_unlock(dev);
 }
@@ -2021,7 +1996,6 @@ static void repair_bitlists(struct tier_device *dev)
 				    ("repair_bitlists : cleared corrupted blocklist entry for blocknr %llu\n",
 				     blocknr);
 				memset(binfo, 0, sizeof(struct blockinfo));
-                                kfree(binfo);
 				continue;
 			}
 			if (BLKSIZE + binfo->offset >
@@ -2030,7 +2004,6 @@ static void repair_bitlists(struct tier_device *dev)
 				    ("repair_bitlists : cleared corrupted blocklist entry for blocknr %llu\n",
 				     blocknr);
 				memset(binfo, 0, sizeof(struct blockinfo));
-                                kfree(binfo);
 				continue;
 			}
 			relative_offset =
@@ -2039,7 +2012,6 @@ static void repair_bitlists(struct tier_device *dev)
 			mark_offset_as_used(dev, binfo->device - 1, relative_offset);
 			dev->backdev[i]->free_offset = relative_offset >> BLKBITS;
                 }
-                kfree(binfo);
 	}
 }
 
@@ -2662,7 +2634,6 @@ static int migrate_data_if_needed(struct tier_device *dev, u64 startofblocklist,
 		}
 		// Migrating blocks from device 0 + 1;
 		if (orgbinfo->device != 1) {
-			kfree(orgbinfo);
 			continue;
 		}
 		cbres = 1;
@@ -2687,7 +2658,6 @@ static int migrate_data_if_needed(struct tier_device *dev, u64 startofblocklist,
 				     curblock, orgbinfo->device - 1,
 				     binfo->device - 1);
 		}
-		kfree(orgbinfo);
 		if (!cbres) {
 			res = -1;
 			break;

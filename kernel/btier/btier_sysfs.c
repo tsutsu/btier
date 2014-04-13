@@ -577,7 +577,6 @@ static ssize_t tier_attr_show_blockinfo_show(struct tier_device *dev, char *buf)
 			      binfo->lastused, binfo->readcount,
 			      binfo->writecount);
 		res += len;
-		kfree(binfo);
 		if (!dev->user_selected_ispaged)
 			break;
 		blocknr++;
