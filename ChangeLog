@@ -1,3 +1,6 @@
+        release                 : 1.3.0 2014-06-11
+                                : This release enables btier to scale up to > 200k IOPS with PCIe flash
+                                : in 'bio' mode. When using vfs it scales up to > 100k IOPS.
         release                 : 1.2.6 2014-03-26
                                 : Revert the zero filled block recognition since it caused data
                                 : corruption. This was a real bad bug.

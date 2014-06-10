@@ -183,6 +183,13 @@ struct fd_s {
 
 #ifdef __KERNEL__
 
+struct bio_task {
+    atomic_t pending;
+    struct bio *parent_bio;
+    struct tier_device *dev;
+    int vfs;
+};
+
 typedef struct {
 	struct file *fp;
 	mm_segment_t fs;
