@@ -54,7 +54,7 @@ char *tiger_hash(char *data, unsigned int dlen)
 	/* ... set up the scatterlists ... */
 	desc.tfm = crypto_alloc_hash("tgr192", 0, CRYPTO_ALG_ASYNC);
 	if (IS_ERR(desc.tfm)) {
-		printk(KERN_WARNING "sbd: unable to allocate crypto_hash\n");
+                pr_warn("unable to allocate crypto_hash\n");
 		goto fail;
 	}
 	desc.flags = 0;
@@ -2965,7 +2965,7 @@ static long tier_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct tier_device *dev = NULL;
 	struct tier_device *devnew = NULL;
-	int current_device_nr;
+	int current_device_nr = 0;
 	int err = 0;
 	char *dname;
 	int devlen;
