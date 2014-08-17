@@ -42,6 +42,8 @@ been written to 30 times.
 
 The syntax to migate a block is : 
 echo <blocknr>/<device> >/sys/block/sdtierX/tier/migrate_block
+So to migrate blocknr 10 to device 1:
+echo 10/1 >/sys/block/sdtiera/tier/migrate_block
 
 *NEW* btier now supports paged blockinfo retrieval.
 Instead of retrieving the metadata of one block this will

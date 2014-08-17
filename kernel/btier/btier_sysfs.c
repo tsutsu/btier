@@ -117,8 +117,8 @@ static ssize_t tier_attr_migration_enable_store(struct tier_device *dev,
 		if (!dtapolicy->migration_disabled
 		    && 0 == atomic_read(&dev->migrate)) {
 			dtapolicy->migration_disabled = 1;
-                        if (timer_pending(&dev->migrate_timer))
-			    del_timer_sync(&dev->migrate_timer);
+			if (timer_pending(&dev->migrate_timer))
+				del_timer_sync(&dev->migrate_timer);
 			pr_info("migration is disabled for %s\n", dev->devname);
 		}
 		dtapolicy->migration_disabled = 1;
@@ -232,7 +232,7 @@ static ssize_t tier_attr_discard_store(struct tier_device *dev,
 static ssize_t tier_attr_writethrough_store(struct tier_device *dev,
 					    const char *buf, size_t s)
 {
-        struct devicemagic *magic = dev->backdev[0]->devmagic;
+	struct devicemagic *magic = dev->backdev[0]->devmagic;
 	if ('0' != buf[0] && '1' != buf[0])
 		return s;
 	btier_lock(dev);
@@ -247,7 +247,7 @@ static ssize_t tier_attr_writethrough_store(struct tier_device *dev,
 			pr_info("writethrough is enabled\n");
 		}
 	}
-        magic->writethrough = dev->writethrough;
+	magic->writethrough = dev->writethrough;
 	btier_unlock(dev);
 	return s;
 }
@@ -326,8 +326,8 @@ static ssize_t tier_attr_sequential_landing_store(struct tier_device *dev,
 	return s;
 
 end_error:
-        kfree(cpybuf);
-        return -ENOMSG;
+	kfree(cpybuf);
+	return -ENOMSG;
 }
 
 static ssize_t tier_attr_migrate_block_store(struct tier_device *dev,
@@ -390,8 +390,8 @@ static ssize_t tier_attr_migration_policy_store(struct tier_device *dev,
 	unsigned int hit_collecttime;
 
 	char *cur = NULL;
-        char *a = NULL;
-        char *p = NULL;
+	char *a = NULL;
+	char *p = NULL;
 	char *devicename = NULL;
 	char *cpybuf;
 
@@ -403,11 +403,11 @@ static ssize_t tier_attr_migration_policy_store(struct tier_device *dev,
 	if (!p)
 		goto end_error;
 	a = kzalloc(p - cpybuf + 1, GFP_KERNEL);
-        if (!a)
-                goto end_error;
+	if (!a)
+		goto end_error;
 	memcpy(a, cpybuf, p - cpybuf);
 	res = sscanf(a, "%u", &devicenr);
-        kfree(a);
+	kfree(a);
 	if (res != 1 || devicenr < 0 || devicenr >= dev->attached_devices)
 		goto end_error;
 	a = p;
@@ -418,14 +418,14 @@ static ssize_t tier_attr_migration_policy_store(struct tier_device *dev,
 	if (!p)
 		goto end_error;
 	devicename = kzalloc(p - cpybuf + 1, GFP_KERNEL);
-        if (!devicename) {
-                goto end_error;
-        }
+	if (!devicename) {
+		goto end_error;
+	}
 	memcpy(devicename, a, p - a);
 	if (0 !=
 	    strcmp(devicename,
 		   dev->backdev[devicenr]->fds->f_dentry->d_name.name)) {
-	        kfree(devicename);
+		kfree(devicename);
 		goto end_error;
 	}
 	kfree(devicename);
@@ -466,8 +466,8 @@ static ssize_t tier_attr_migration_interval_store(struct tier_device *dev,
 	int res;
 	u64 interval;
 	char *cpybuf;
-        struct data_policy *dtapolicy = &dev->backdev[0]->devmagic->dtapolicy;
-        int curstate=dtapolicy->migration_disabled;
+	struct data_policy *dtapolicy = &dev->backdev[0]->devmagic->dtapolicy;
+	int curstate = dtapolicy->migration_disabled;
 
 	cpybuf = null_term_buf(buf, s);
 	if (!cpybuf)
@@ -476,7 +476,7 @@ static ssize_t tier_attr_migration_interval_store(struct tier_device *dev,
 	if (res == 1) {
 		if (interval <= 0)
 			return -ENOMSG;
-                dtapolicy->migration_disabled=1;
+		dtapolicy->migration_disabled = 1;
 		mutex_lock(&dev->qlock);
 		dtapolicy->migration_interval = interval;
 		if (!dtapolicy->migration_disabled)
@@ -485,7 +485,7 @@ static ssize_t tier_attr_migration_interval_store(struct tier_device *dev,
 				  msecs_to_jiffies(dtapolicy->migration_interval
 						   * 1000));
 		mutex_unlock(&dev->qlock);
-                dtapolicy->migration_disabled=curstate;
+		dtapolicy->migration_disabled = curstate;
 	} else
 		s = -ENOMSG;
 	kfree(cpybuf);
@@ -499,54 +499,62 @@ static ssize_t tier_attr_migration_enable_show(struct tier_device *dev,
 	return sprintf(buf, "%i\n", !dtapolicy->migration_disabled);
 }
 
-static ssize_t tier_attr_internals_show(struct tier_device *dev,
-                                               char *buf)
+static ssize_t tier_attr_internals_show(struct tier_device *dev, char *buf)
 {
-        char *iotype;
-        char *iopending;
-        char *qlock;
-        char *aiowq;
-        char *discard;
+	char *iotype;
+	char *iopending;
+	char *qlock;
+	char *aiowq;
+	char *discard;
 #ifndef MAX_PERFORMANCE
-        char *debug_state;
+	char *debug_state;
 #endif
-        int res = 0;
-       
-        if (atomic_read(&dev->migrate) == MIGRATION_IO) 
-            iotype = as_sprintf("iotype (normal or migration) : migration_io\n");
-        else if (atomic_read(&dev->wqlock))
-            iotype = as_sprintf("iotype (normal or migration) : normal_io\n");
-        else
-            iotype = as_sprintf("iotype (normal or migration) : no activity\n");
-        iopending =  as_sprintf("async random ios pending     : %i\n", atomic_read(&dev->aio_pending));
-        if ( mutex_is_locked(&dev->qlock))
-             qlock = as_sprintf("main mutex                   : locked\n");
-        else qlock = as_sprintf("main mutex                   : unlocked\n");
-        if (waitqueue_active(&dev->aio_event)) 
-             aiowq = as_sprintf("waiting on asynchrounous io  : True\n");
-        else 
-             aiowq = as_sprintf("waiting on asynchrounous io  : False\n");
+	int res = 0;
+
+	if (atomic_read(&dev->migrate) == MIGRATION_IO)
+		iotype =
+		    as_sprintf("iotype (normal or migration) : migration_io\n");
+	else if (atomic_read(&dev->wqlock))
+		iotype =
+		    as_sprintf("iotype (normal or migration) : normal_io\n");
+	else
+		iotype =
+		    as_sprintf("iotype (normal or migration) : no activity\n");
+	iopending =
+	    as_sprintf("async random ios pending     : %i\n",
+		       atomic_read(&dev->aio_pending));
+	if (mutex_is_locked(&dev->qlock))
+		qlock = as_sprintf("main mutex                   : locked\n");
+	else
+		qlock = as_sprintf("main mutex                   : unlocked\n");
+	if (waitqueue_active(&dev->aio_event))
+		aiowq = as_sprintf("waiting on asynchrounous io  : True\n");
+	else
+		aiowq = as_sprintf("waiting on asynchrounous io  : False\n");
 #ifndef MAX_PERFORMANCE
-        spin_lock(&dev->dbg_lock);
-        if (dev->debug_state & DISCARD)
-           discard = as_sprintf("discard request is pending   : True\n");
-        else 
-           discard = as_sprintf("discard request is pending   : False\n");
-        debug_state = as_sprintf("debug state                  : %i\n", dev->debug_state);
-        spin_unlock(&dev->dbg_lock);
-        res = sprintf(buf, "%s%s%s%s%s%s", iotype, iopending, qlock, aiowq, discard, debug_state);
+	spin_lock(&dev->dbg_lock);
+	if (dev->debug_state & DISCARD)
+		discard = as_sprintf("discard request is pending   : True\n");
+	else
+		discard = as_sprintf("discard request is pending   : False\n");
+	debug_state =
+	    as_sprintf("debug state                  : %i\n", dev->debug_state);
+	spin_unlock(&dev->dbg_lock);
+	res =
+	    sprintf(buf, "%s%s%s%s%s%s", iotype, iopending, qlock, aiowq,
+		    discard, debug_state);
 #else
-        res = sprintf(buf, "%s%s%s%s", iotype, iopending, qlock, aiowq);
+	res = sprintf(buf, "%s%s%s%s", iotype, iopending, qlock, aiowq);
 #endif
-        kfree(iotype);
-        kfree(iopending);
-        kfree(qlock);
-        kfree(aiowq);
+	kfree(iotype);
+	kfree(iopending);
+	kfree(qlock);
+	kfree(aiowq);
 #ifndef MAX_PERFORMANCE
-        kfree(discard);
-        kfree(debug_state);
+	kfree(discard);
+	kfree(debug_state);
 #endif
-        return res;
+	return res;
 }
 
 static ssize_t tier_attr_uuid_show(struct tier_device *dev, char *buf)

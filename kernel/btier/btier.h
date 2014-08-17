@@ -52,7 +52,7 @@ typedef unsigned long u32;
 #define BLKSIZE 1048576		/*Moving smaller blocks then 4M around
 				   will lead to fragmentation */
 #define BLKBITS 20		/*Adjust when changing BLKSIZE */
-#define PAGE_SHIFT 12           /*4k page size */
+#define PAGE_SHIFT 12		/*4k page size */
 #define TIER_NAME_SIZE     64	/* Max lenght of the filenames */
 #define TIER_SET_FD        0xFE00
 #define TIER_SET_DEVSZ     0xFE03
@@ -121,16 +121,16 @@ typedef unsigned long u32;
 #define MAX_STAT_DECAY 500000	/* Loose 5% hits per walk when we have reached the max */
 #ifndef MAX_PERFORMANCE
 enum states {
-    IDLE           = 0,
-    BIOREAD        = 1,
-    VFSREAD        = 2,
-    VFSWRITE       = 4,
-    BIOWRITE       = 8,
-    WAITAIOPENDING = 16,
-    PRESYNC        = 32,
-    PREBINFO       = 64,
-    PREALLOCBLOCK  = 128,
-    DISCARD        = 512
+	IDLE = 0,
+	BIOREAD = 1,
+	VFSREAD = 2,
+	VFSWRITE = 4,
+	BIOWRITE = 8,
+	WAITAIOPENDING = 16,
+	PRESYNC = 32,
+	PREBINFO = 64,
+	PREALLOCBLOCK = 128,
+	DISCARD = 512
 };
 #endif
 
@@ -172,22 +172,22 @@ struct devicemagic {
 	char fullpathname[1025];
 	struct data_policy dtapolicy;
 	char uuid[24];
-        unsigned int writethrough;
-        unsigned int use_bio;
+	unsigned int writethrough;
+	unsigned int use_bio;
 } __attribute__ ((packed));
 
 struct fd_s {
 	int fd;
-        int use_bio;
+	int use_bio;
 };
 
 #ifdef __KERNEL__
 
 struct bio_task {
-    atomic_t pending;
-    struct bio *parent_bio;
-    struct tier_device *dev;
-    int vfs;
+	atomic_t pending;
+	struct bio *parent_bio;
+	struct tier_device *dev;
+	int vfs;
 };
 
 typedef struct {
@@ -212,7 +212,7 @@ struct backing_device {
 	struct blockinfo **blocklist;
 	u8 *bitlist;
 	unsigned int ra_pages;
-        struct block_device *bdev;
+	struct block_device *bdev;
 };
 
 struct tier_stats {
@@ -260,7 +260,7 @@ struct tier_device {
 	atomic_t wqlock;
 	atomic_t commit;
 	atomic_t curfd;
-        int debug_state;
+	int debug_state;
 	unsigned int commit_interval;
 	int barrier;
 	int stop;
@@ -290,8 +290,8 @@ struct tier_device {
 	u64 user_selected_blockinfo;
 	int user_selected_ispaged;
 	unsigned int users;
-        int use_bio;
-        char zero_buf[PAGE_SIZE];
+	int use_bio;
+	char zero_buf[PAGE_SIZE];
 };
 
 typedef struct {
@@ -306,7 +306,7 @@ typedef struct {
 	unsigned int device;
 	void *data;
 	unsigned int size;
-        struct page *bv_page;
+	struct page *bv_page;
 } aio_work_t;
 
 void free_bitlists(struct tier_device *);

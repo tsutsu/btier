@@ -25,7 +25,7 @@ struct backing_device {
 	u64 startofbitlist;
 	u64 startofblocklist;
 	char *datafile;
-        int use_bio;
+	int use_bio;
 };
 
 struct option_info {
@@ -38,7 +38,7 @@ struct option_info {
 	int backdev_count;
 	u64 total_device_size;
 	u64 bitlistsize_total;
-        int use_bio;
+	int use_bio;
 };
 
 void *s_malloc(size_t size)
@@ -150,7 +150,7 @@ void write_device_magic(int fd, u64 total_device_size,
 	magic.blocklistsize = blocklistsize;
 	magic.startofblocklist = bdev->startofblocklist;
 	magic.startofbitlist = bdev->startofbitlist;
-        magic.use_bio = mkoptions.use_bio;
+	magic.use_bio = mkoptions.use_bio;
 	if (strlen(bdev->datafile) > 1024)
 		exit(-ENAMETOOLONG);
 	memcpy(&magic.fullpathname, bdev->datafile, strlen(bdev->datafile));
@@ -196,7 +196,7 @@ int tier_set_fd(int fd, char *datafile, int devicenr)
 	mode = O_RDWR | O_NOATIME;
 	if (mkoptions.sync)
 		mode |= O_SYNC;
-        fds.use_bio = mkoptions.use_bio;
+	fds.use_bio = mkoptions.use_bio;
 	fds.fd = open(datafile, mode, 0600);
 	if (fds.fd < 0)
 		return -1;
@@ -211,7 +211,7 @@ int tier_set_fd(int fd, char *datafile, int devicenr)
 		if (-1 == devsize) {
 			fprintf(stderr, "Error while opening %llu : %s\n",
 				devsize, strerror(errno));
-		        close(ffd);
+			close(ffd);
 			return -1;
 		}
 	} else {
@@ -365,12 +365,12 @@ int get_opts(int argc, char *argv[])
 
 	while ((c = getopt(argc, argv, "VBcd:bhcsf:m:z:")) != -1)
 		switch (c) {
-                case 'B':
-                        mkoptions.use_bio = USE_BIO;
-                        break;
-                case 'V':
-                        mkoptions.use_bio = USE_VFS;
-                        break;
+		case 'B':
+			mkoptions.use_bio = USE_BIO;
+			break;
+		case 'V':
+			mkoptions.use_bio = USE_VFS;
+			break;
 		case 'c':
 			mkoptions.create = 1;
 			break;
@@ -436,7 +436,7 @@ int main(int argc, char *argv[])
 	mkoptions.sectorsize = 0;
 	mkoptions.total_device_size = 0;
 	mkoptions.bitlistsize_total = 0;
-        mkoptions.use_bio = 0;
+	mkoptions.use_bio = 0;
 	struct stat stdta;
 	struct stat device;
 	int mode = O_RDWR | O_NOATIME;
@@ -577,8 +577,8 @@ int main(int argc, char *argv[])
 					   mkoptions.backdev[count]);
 		}
 	}
-        if ((mkoptions.create) && (mkoptions.use_bio == 0))
-            mkoptions.use_bio=USE_VFS;
+	if ((mkoptions.create) && (mkoptions.use_bio == 0))
+		mkoptions.use_bio = USE_VFS;
 	ret = tier_setup(TIER_REGISTER, fd, 0);
 	if (0 != ret)
 		die_ioctlerr("ioctl TIER_REGISTER failed\n");

@@ -1,6 +1,10 @@
-        release                 : 1.3.0 2014-06-11
-                                : This release enables btier to scale up to > 200k IOPS with PCIe flash
-                                : in 'bio' mode. When using vfs it scales up to > 100k IOPS.
+        release                 : 1.3.2 2014-08-16
+                                : Make btier work with kernels >= 3.14
+                                : Signed-off-by, thanks to: Jianjian Huo
+                                : Fix a problem in btier-1.3.0 that would cause data corruption
+                                : when data was migrated, while all storage devices lacked free space
+                                : Prevent a kernel Oops when tiger hash support was not present
+                                : in the kernel. Reported by / thanks to: Jianjian Huo
         release                 : 1.2.6 2014-03-26
                                 : Revert the zero filled block recognition since it caused data
                                 : corruption. This was a real bad bug.

@@ -197,14 +197,14 @@ void backup_list(int fd, u64 size, u64 soffset, char *type, int device)
 	while (end_offset > start_offset) {
 		res = s_pread(fd, block, BLKSIZE, start_offset);
 		if (res != BLKSIZE) {
-                        free(block);
+			free(block);
 			die_syserr();
-                }
+		}
 		res = s_pwrite(sfd, block, BLKSIZE, start_offset - soffset);
 		if (res != BLKSIZE) {
-                        free(block);
+			free(block);
 			die_syserr();
-                }
+		}
 		start_offset += BLKSIZE;
 	}
 	free(block);
@@ -268,7 +268,7 @@ int tier_set_fd(int fd, char *datafile, int devicenr)
 		if (-1 == devsize) {
 			fprintf(stderr, "Error while opening %llu : %s\n",
 				devsize, strerror(errno));
-		        close(ffd);
+			close(ffd);
 			return -1;
 		}
 	} else {
