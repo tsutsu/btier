@@ -5,6 +5,7 @@
 config BTIER
 	tristate "Enable btier"
 	default m
+	select CRYPTO_TGR192
 	---help---
 	btier allows to create a tiered blockdevice from
 	multiple redundant blockdevices.
