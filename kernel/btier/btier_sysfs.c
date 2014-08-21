@@ -208,10 +208,8 @@ static ssize_t tier_attr_discard_store(struct tier_device *dev,
 			dev->discard = 0;
 			pr_info("discard_to_devices is disabled\n");
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,0,0)
-			if (dev->discard) {
-				queue_flag_clear_unlocked(QUEUE_FLAG_DISCARD,
-							  dev->rqueue);
-			}
+			queue_flag_clear_unlocked(QUEUE_FLAG_DISCARD,
+						  dev->rqueue);
 #endif
 		}
 	} else {
@@ -219,10 +217,8 @@ static ssize_t tier_attr_discard_store(struct tier_device *dev,
 			dev->discard = 1;
 			pr_info("discard is enabled\n");
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,0,0)
-			if (dev->discard) {
-				queue_flag_set_unlocked(QUEUE_FLAG_DISCARD,
-							dev->rqueue);
-			}
+			queue_flag_set_unlocked(QUEUE_FLAG_DISCARD,
+						dev->rqueue);
 #endif
 		}
 	}
