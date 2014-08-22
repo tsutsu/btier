@@ -15,7 +15,7 @@
 
 #define TRUE 1
 #define FALSE 0
-#define TIER_VERSION "1.3.2"
+#define TIER_VERSION "1.3.3"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Mark Ruijter");
@@ -616,14 +616,15 @@ static int tier_bio_io(struct tier_device *dev, unsigned int device,
 {
 	struct bio *bio;
 	struct block_device *bdev = dev->backdev[device]->bdev;
-	struct page *page;
 	int bvecs;
 	int res;
 	int bv;
-	char *buf;
+	void *buf;
+	struct page *page;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0)
 	struct bvec_iter iter;
 	struct bio_vec bvec;
+        unsigned bytes;
 #else
 	struct bio_vec *bvec;
 #endif
@@ -635,54 +636,58 @@ static int tier_bio_io(struct tier_device *dev, unsigned int device,
 		return -EIO;
 	}
 	bio->bi_bdev = bdev;
+	bio->bi_rw = rw;
+	bio->bi_vcnt = bvecs;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0)
 	bio->bi_iter.bi_sector = offset >> 9;
 	bio->bi_iter.bi_size = size;
 	bio->bi_iter.bi_idx = 0;
+        bio->bi_iter.bi_bvec_done = 0;
 #else
 	bio->bi_sector = offset >> 9;
 	bio->bi_size = size;
 	bio->bi_idx = 0;
 #endif
-	bio->bi_rw = rw;
 	for (bv = 0; bv < bvecs; bv++) {
-		page = alloc_page(GFP_NOIO);
-		if (!page) {
-			tiererror(dev, "tier_bio_io : alloc_page failed\n");
-			return -EIO;
-		}
-		if (rw == WRITE) {
-			buf = kmap(page);
-			memcpy(buf, buffer + (PAGE_SIZE * bv), PAGE_SIZE);
-			kunmap(page);
-		}
+                page = alloc_page(GFP_NOIO);
+                if (!page) {
+                        tiererror(dev, "tier_bio_io : alloc_page failed\n");
+                        return -EIO;
+                }
+                if (rw == WRITE) {
+                        buf = kmap(page);
+                        memcpy(buf, &buffer[PAGE_SIZE * bv], PAGE_SIZE);
+                        kunmap(page);
+                }
 		bio->bi_io_vec[bv].bv_len = PAGE_SIZE;
 		bio->bi_io_vec[bv].bv_offset = 0;
 		bio->bi_io_vec[bv].bv_page = page;
-	}
-	bio->bi_vcnt = bv;
+        }
+        bio_get(bio);
 	res = submit_bio_wait(rw, bio);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0)
-	bio->bi_iter.bi_sector = offset >> 9;
-	bio->bi_iter.bi_size = size;
-	bio->bi_iter.bi_idx = 0;
+        bio->bi_iter.bi_sector = offset >> 9;
+        bio->bi_iter.bi_size = size;
+        bio->bi_iter.bi_idx = 0;
+        iter = bio->bi_iter;
+        bytes = 0;
 	bio_for_each_segment(bvec, bio, iter) {
-		if (rw == READ) {
-			buf = kmap(bvec.bv_page);
-			memcpy(&buffer[PAGE_SIZE * bio->bi_iter.bi_idx], buf,
-			       PAGE_SIZE);
-			kunmap(bvec.bv_page);
-		}
-		__free_page(bvec.bv_page);
-	}
+                if (rw == READ) {
+                        buf = kmap_atomic(bvec.bv_page);
+			memcpy(&buffer[bytes], buf, bvec.bv_len);
+                        kunmap_atomic(buf);
+                }
+                bytes += bvec.bv_len;
+                __free_page(bvec.bv_page);
+        }
 #else
 	bv = 0;
 	bio->bi_idx = 0;
 	bio_for_each_segment(bvec, bio, bv) {
 		if (rw == READ) {
 			buf = kmap(bvec->bv_page);
-			memcpy(&buffer[PAGE_SIZE * bv], buf, PAGE_SIZE);
+			memcpy(&buffer[PAGE_SIZE * bv], buf, bvec->bv_len);
 			kunmap(bvec->bv_page);
 		}
 		__free_page(bvec->bv_page);
@@ -701,13 +706,27 @@ static int tier_bio_io_paged(struct tier_device *dev, unsigned int device,
 			     int rw)
 {
 	unsigned int done;
-	unsigned int chunksize = PAGE_SIZE;
-	int res;
+	struct block_device *bdev = dev->backdev[device]->bdev;
+	unsigned int chunksize;
+	unsigned int max_hwsectors_kb;
+        struct request_queue *q = bdev_get_queue(bdev);
+	int res = 0;
 
+        max_hwsectors_kb = queue_max_hw_sectors(q);
+        chunksize = max_hwsectors_kb << 9;
+        if ( chunksize < PAGE_SIZE )
+            chunksize = BLKSIZE;
+        if ( chunksize > BLKSIZE )
+            chunksize = BLKSIZE;
 	for (done = 0; done < size; done += chunksize) {
-		res =
-		    tier_bio_io(dev, device, buffer + done, chunksize,
-				offset + done, rw);
+                if (chunksize > size - done) 
+		    res =
+		        tier_bio_io(dev, device, buffer + done, chunksize,
+		    		offset + done, rw);
+                else
+		    res =
+		        tier_bio_io(dev, device, buffer + done, size - done,
+		    		offset + done, rw);
 		if (res)
 			break;
 	}
