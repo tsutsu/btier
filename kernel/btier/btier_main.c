@@ -719,7 +719,7 @@ static int tier_bio_io_paged(struct tier_device *dev, unsigned int device,
         if ( chunksize > BLKSIZE )
             chunksize = BLKSIZE;
 	for (done = 0; done < size; done += chunksize) {
-                if (chunksize > size - done) 
+                if (chunksize < (size - done)) 
 		    res =
 		        tier_bio_io(dev, device, buffer + done, chunksize,
 		    		offset + done, rw);
