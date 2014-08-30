@@ -188,6 +188,7 @@ struct bio_task {
 	struct bio *parent_bio;
 	struct tier_device *dev;
 	int vfs;
+        int in_one;
 };
 
 typedef struct {

@@ -15,7 +15,7 @@
 
 #define TRUE 1
 #define FALSE 0
-#define TIER_VERSION "1.3.3"
+#define TIER_VERSION "1.3.4"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Mark Ruijter");
@@ -400,8 +400,8 @@ static int tier_file_write(struct tier_device *dev, unsigned int device,
 	return bw;
 }
 
-static int read_tiered(struct tier_device *dev, char *data,
-		       unsigned int len, u64 offset, struct bio_vec *bvec,
+static int read_tiered(void *data, unsigned int len,
+                       u64 offset, struct bio_vec *bvec,
 		       struct bio_task *bio_task)
 {
 	struct blockinfo *binfo = NULL;
@@ -412,7 +412,9 @@ static int read_tiered(struct tier_device *dev, char *data,
 	unsigned int done = 0;
 	u64 curoff;
 	unsigned int device;
+        unsigned int chunksize=PAGE_SIZE;
 	int keep = 0;
+        struct tier_device *dev = bio_task->dev;
 
 	if (dev->iotype == RANDOM)
 		dev->stats.rand_reads++;
@@ -447,8 +449,13 @@ static int read_tiered(struct tier_device *dev, char *data,
 			device = binfo->device - 1;
 			if (dev->backdev[device]->bdev
 			    && dev->use_bio == USE_BIO) {
+                                if(done == 0) {
+                                     chunksize = get_chunksize(dev->backdev[device]->bdev);
+                                     if ( bio_task->parent_bio->bi_size <= chunksize )
+                                         bio_task->in_one = 1;
+                                }
 				res =
-				    tier_read_page(dev, device, bvec,
+				    tier_read_page(device, bvec,
 						   binfo->offset + block_offset,
 						   bio_task);
 			} else {
@@ -471,7 +478,7 @@ static int read_tiered(struct tier_device *dev, char *data,
 			}
 		}
 		done += size;
-		if (res != 0)
+		if (res != 0 || bio_task->in_one)
 			break;
 	}
 	if (!keep)
@@ -518,47 +525,64 @@ static struct bio *prepare_bio_req(struct tier_device *dev, unsigned int device,
 				   struct bio_task *bio_task)
 {
 	struct block_device *bdev = dev->backdev[device]->bdev;
-	struct bio *bio = bio_alloc(GFP_NOIO, 1);
-	bio->bi_bdev = bdev;
-	bio->bi_io_vec[0].bv_page = bvec->bv_page;
-	bio->bi_io_vec[0].bv_len = bvec->bv_len;
-	bio->bi_io_vec[0].bv_offset = bvec->bv_offset;
-	bio->bi_vcnt = 1;
+        struct bio *bio;
+  
+        if (bio_task->in_one) {
+             bio = bio_clone(bio_task->parent_bio, GFP_NOIO);
+             if (!bio)
+                  tiererror(dev, "bio_clone failed\n");
+        } else {
+	     bio = bio_alloc(GFP_NOIO, 1);
+             if (!bio)
+                  tiererror(dev, "bio_clone failed\n");
+	     bio->bi_bdev = bdev;
+	     bio->bi_io_vec[0].bv_page = bvec->bv_page;
+	     bio->bi_io_vec[0].bv_len = bvec->bv_len;
+	     bio->bi_io_vec[0].bv_offset = bvec->bv_offset;
+	     bio->bi_vcnt = 1;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0)
+	     bio->bi_iter.bi_size = bvec->bv_len;
+#else
+	     bio->bi_size = bvec->bv_len;
+#endif
+        }
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0)
 	bio->bi_iter.bi_sector = offset >> 9;
 	bio->bi_iter.bi_idx = 0;
-	bio->bi_iter.bi_size = bvec->bv_len;
 #else
 	bio->bi_sector = offset >> 9;
 	bio->bi_idx = 0;
-	bio->bi_size = bvec->bv_len;
 #endif
 	bio->bi_private = bio_task;
+	bio->bi_bdev = bdev;
 	return bio;
 }
 
-static int tier_write_page(struct tier_device *dev, unsigned int device,
-			   struct bio_vec *bvec, u64 offset,
-			   struct bio_task *bio_task)
+static int tier_write_page(unsigned int device,
+                           struct bio_vec *bvec, u64 offset,
+                           struct bio_task *bio_task)
 {
-	struct bio *bio;
-	set_debug_info(dev, BIOWRITE);
-	bio = prepare_bio_req(dev, device, bvec, offset, bio_task);
-	if (!bio)
-		tiererror(dev, "bio_alloc failed from tier_write_page\n");
-	bio->bi_end_io = bio_write_done;
-	bio->bi_rw = WRITE;
-	atomic_inc(&dev->aio_pending);
-	submit_bio(WRITE, bio);
-	clear_debug_info(dev, BIOWRITE);
-	return 0;
+        struct bio *bio;
+        struct tier_device *dev = bio_task->dev;
+        set_debug_info(dev, BIOWRITE);
+        bio = prepare_bio_req(dev, device, bvec, offset, bio_task);
+        if (!bio)
+                tiererror(dev, "bio_alloc failed from tier_write_page\n");
+        bio->bi_end_io = bio_write_done;
+        bio->bi_rw = WRITE;
+        atomic_inc(&dev->aio_pending);
+        bio_get(bio);
+        submit_bio(WRITE, bio);
+        clear_debug_info(dev, BIOWRITE);
+        return 0;
 }
 
-static int tier_read_page(struct tier_device *dev, unsigned int device,
+static int tier_read_page(unsigned int device,
 			  struct bio_vec *bvec, u64 offset,
 			  struct bio_task *bio_task)
 {
 	struct bio *bio;
+        struct tier_device *dev = bio_task->dev;
 	set_debug_info(dev, BIOREAD);
 	bio = prepare_bio_req(dev, device, bvec, offset, bio_task);
 	if (!bio)
@@ -566,6 +590,7 @@ static int tier_read_page(struct tier_device *dev, unsigned int device,
 	bio->bi_end_io = bio_read_done;
 	bio->bi_rw = READ;
 	atomic_inc(&dev->aio_pending);
+        bio_get(bio);
 	submit_bio(READ, bio);
 	clear_debug_info(dev, BIOREAD);
 	return 0;
@@ -701,23 +726,31 @@ static int tier_bio_io(struct tier_device *dev, unsigned int device,
 	return res;
 }
 
+static int get_chunksize(struct block_device *bdev)
+{
+        struct request_queue *q = bdev_get_queue(bdev);
+        unsigned int chunksize;
+        unsigned int max_hwsectors_kb;
+
+        max_hwsectors_kb = queue_max_hw_sectors(q);
+        chunksize = max_hwsectors_kb << 9;
+        if ( chunksize < PAGE_SIZE )
+            chunksize = PAGE_SIZE;
+        if ( chunksize > BLKSIZE )
+            chunksize = BLKSIZE;
+        return chunksize;
+}
+
 static int tier_bio_io_paged(struct tier_device *dev, unsigned int device,
 			     char *buffer, unsigned int size, u64 offset,
 			     int rw)
 {
 	unsigned int done;
 	struct block_device *bdev = dev->backdev[device]->bdev;
-	unsigned int chunksize;
-	unsigned int max_hwsectors_kb;
-        struct request_queue *q = bdev_get_queue(bdev);
 	int res = 0;
+        unsigned int chunksize;
 
-        max_hwsectors_kb = queue_max_hw_sectors(q);
-        chunksize = max_hwsectors_kb << 9;
-        if ( chunksize < PAGE_SIZE )
-            chunksize = BLKSIZE;
-        if ( chunksize > BLKSIZE )
-            chunksize = BLKSIZE;
+        chunksize = get_chunksize(bdev);
 	for (done = 0; done < size; done += chunksize) {
                 if (chunksize < (size - done)) 
 		    res =
@@ -733,7 +766,7 @@ static int tier_bio_io_paged(struct tier_device *dev, unsigned int device,
 	return res;
 }
 
-static int write_tiered(struct tier_device *dev, char *data, unsigned int len,
+static int write_tiered(void *data, unsigned int len,
 			u64 offset, struct bio_vec *bvec,
 			struct bio_task *bio_task)
 {
@@ -745,6 +778,8 @@ static int write_tiered(struct tier_device *dev, char *data, unsigned int len,
 	unsigned int done = 0;
 	u64 curoff;
 	unsigned int device;
+        unsigned int chunksize=PAGE_SIZE;
+        struct tier_device *dev = bio_task->dev;
 
 	if (dev->iotype == RANDOM)
 		dev->stats.rand_writes++;
@@ -776,8 +811,13 @@ static int write_tiered(struct tier_device *dev, char *data, unsigned int len,
 		}
 		device = binfo->device - 1;
 		if (dev->backdev[device]->bdev && dev->use_bio == USE_BIO) {
+                        if(done == 0) {
+                             chunksize = get_chunksize(dev->backdev[device]->bdev);
+                             if ( bio_task->parent_bio->bi_size <= chunksize )
+                                 bio_task->in_one = 1;
+                        }
 			res =
-			    tier_write_page(dev, device, bvec,
+			    tier_write_page(device, bvec,
 					    binfo->offset + block_offset,
 					    bio_task);
 		} else {
@@ -788,7 +828,7 @@ static int write_tiered(struct tier_device *dev, char *data, unsigned int len,
 					    binfo->offset + block_offset);
 		}
 		done += size;
-		if (res != 0)
+		if (res != 0 || bio_task->in_one)
 			break;
 	}
 	return res;
@@ -1198,12 +1238,13 @@ static void tier_discard(struct tier_device *dev, u64 offset, unsigned int size)
 }
 #endif
 
-static int tier_do_bio(struct tier_device *dev, struct bio_task *bio_task)
+static int tier_do_bio(struct bio_task *bio_task)
 {
 	loff_t offset;
 	int ret = 0;
 	u64 blocknr = 0;
 	char *buffer;
+        struct tier_device *dev = bio_task->dev;
 	struct bio *bio = bio_task->parent_bio;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0)
 	struct bio_vec bvec;
@@ -1266,19 +1307,20 @@ static int tier_do_bio(struct tier_device *dev, struct bio_task *bio_task)
 		if (bio_rw(bio) == WRITE) {
 			buffer = kmap(bvec.bv_page);
 			ret =
-			    write_tiered(dev, buffer + bvec.bv_offset,
+			    write_tiered(buffer + bvec.bv_offset,
 					 bvec.bv_len, offset, &bvec, bio_task);
 			kunmap(bvec.bv_page);
 		} else {
 			buffer = kmap(bvec.bv_page);
-			ret = read_tiered(dev,
-					  buffer + bvec.bv_offset,
+			ret = read_tiered(buffer + bvec.bv_offset,
 					  bvec.bv_len, offset, &bvec, bio_task);
 		}
 		if (ret < 0)
 			break;
 		offset += bvec.bv_len;
 		blocknr = offset >> BLKBITS;
+                if (bio_task->in_one)
+                    break;
 	}
 #else
 	bio_for_each_segment(bvec, bio, i) {
@@ -1287,19 +1329,20 @@ static int tier_do_bio(struct tier_device *dev, struct bio_task *bio_task)
 		if (bio_rw(bio) == WRITE) {
 			buffer = kmap(bvec->bv_page);
 			ret =
-			    write_tiered(dev, buffer + bvec->bv_offset,
+			    write_tiered(buffer + bvec->bv_offset,
 					 bvec->bv_len, offset, bvec, bio_task);
 			kunmap(bvec->bv_page);
 		} else {
 			buffer = kmap(bvec->bv_page);
-			ret = read_tiered(dev,
-					  buffer + bvec->bv_offset,
+			ret = read_tiered(buffer + bvec->bv_offset,
 					  bvec->bv_len, offset, bvec, bio_task);
 		}
 		if (ret < 0)
 			break;
 		offset += bvec->bv_len;
 		blocknr = offset >> BLKBITS;
+                if (bio_task->in_one)
+                    break;
 	}
 #endif
 	if (bio_rw(bio) == WRITE) {
@@ -1333,11 +1376,11 @@ out:
 	return ret;
 }
 
-static inline void tier_handle_bio(struct tier_device *dev,
-				   struct bio_task *bio_task)
+static inline void tier_handle_bio(struct bio_task *bio_task)
 {
 	int ret;
-	ret = tier_do_bio(dev, bio_task);
+        struct tier_device *dev = bio_task->dev;
+	ret = tier_do_bio(bio_task);
 	if (ret != 0)
 		dev->inerror = 1;
 }
@@ -1897,13 +1940,14 @@ static int tier_thread(void *data)
 			continue;
 		backlog = 0;
 		do {
-			spin_lock_irq(&dev->lock);
+                        bio_task[backlog]->in_one = 0;
 			bio_task[backlog]->vfs = 0;
 			atomic_set(&bio_task[backlog]->pending, 1);
+			spin_lock_irq(&dev->lock);
 			bio_task[backlog]->parent_bio = tier_get_bio(dev);
 			spin_unlock_irq(&dev->lock);
 			BUG_ON(!bio_task[backlog]->parent_bio);
-			tier_handle_bio(dev, bio_task[backlog]);
+			tier_handle_bio(bio_task[backlog]);
 			backlog++;
 /* When reading sequential we stay on a single thread and a single filedescriptor */
 		} while (!bio_list_empty(&dev->tier_bio_list)
