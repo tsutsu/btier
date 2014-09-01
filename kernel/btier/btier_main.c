@@ -15,7 +15,7 @@
 
 #define TRUE 1
 #define FALSE 0
-#define TIER_VERSION "1.3.4"
+#define TIER_VERSION "1.3.5"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Mark Ruijter");
@@ -451,7 +451,8 @@ static int read_tiered(void *data, unsigned int len,
 			    && dev->use_bio == USE_BIO) {
                                 if(done == 0) {
                                      chunksize = get_chunksize(dev->backdev[device]->bdev);
-                                     if ( bio_task->parent_bio->bi_size <= chunksize )
+                                     if ( bio_task->parent_bio->bi_size <= chunksize &&
+                                          block_offset + bio_task->parent_bio->bi_size <= BLKSIZE )
                                          bio_task->in_one = 1;
                                 }
 				res =
@@ -571,7 +572,6 @@ static int tier_write_page(unsigned int device,
         bio->bi_end_io = bio_write_done;
         bio->bi_rw = WRITE;
         atomic_inc(&dev->aio_pending);
-        bio_get(bio);
         submit_bio(WRITE, bio);
         clear_debug_info(dev, BIOWRITE);
         return 0;
@@ -590,7 +590,6 @@ static int tier_read_page(unsigned int device,
 	bio->bi_end_io = bio_read_done;
 	bio->bi_rw = READ;
 	atomic_inc(&dev->aio_pending);
-        bio_get(bio);
 	submit_bio(READ, bio);
 	clear_debug_info(dev, BIOREAD);
 	return 0;
@@ -813,7 +812,8 @@ static int write_tiered(void *data, unsigned int len,
 		if (dev->backdev[device]->bdev && dev->use_bio == USE_BIO) {
                         if(done == 0) {
                              chunksize = get_chunksize(dev->backdev[device]->bdev);
-                             if ( bio_task->parent_bio->bi_size <= chunksize )
+                             if ( bio_task->parent_bio->bi_size <= chunksize &&
+                                 block_offset + bio_task->parent_bio->bi_size <= BLKSIZE )
                                  bio_task->in_one = 1;
                         }
 			res =
@@ -1940,8 +1940,6 @@ static int tier_thread(void *data)
 			continue;
 		backlog = 0;
 		do {
-                        bio_task[backlog]->in_one = 0;
-			bio_task[backlog]->vfs = 0;
 			atomic_set(&bio_task[backlog]->pending, 1);
 			spin_lock_irq(&dev->lock);
 			bio_task[backlog]->parent_bio = tier_get_bio(dev);
@@ -1956,6 +1954,8 @@ static int tier_thread(void *data)
 			tier_sync(dev);
 		for (i = 0; i < backlog; i++) {
 			tier_wait_bio(bio_task[i]);
+                        bio_task[i]->in_one = 0;
+			bio_task[i]->vfs = 0;
 		}
 	}
 	for (i = 0; i < BTIER_MAX_INFLIGHT; i++) {
@@ -2253,6 +2253,41 @@ char *btier_uuid(struct tier_device *dev)
 	return asc;
 }
 
+/* This is called by bio_add_page().
+ * q->max_hw_sectors and other global limits are already enforced there.
+ *
+ * We need to call down to our lower level device,
+ * in case it has special restrictions.
+ *
+ * We also may need to enforce configured max-bio-bvecs limits.
+ *
+ * As long as the BIO is empty we have to allow at least one bvec,
+ * regardless of size and offset, so no need to ask lower levels.
+ */
+int btier_merge_bvec(struct request_queue *q, struct bvec_merge_data *bvm, struct bio_vec *bvec)
+{
+        struct tier_device *dev = (struct tier_device *) q->queuedata;
+	struct block_device *bdev;
+        unsigned int max_hw_sectors = queue_max_hw_sectors(q);
+        int limit = BLKSIZE;
+        int i, backing_limit;
+        struct request_queue *b;
+
+	for (i = 0; i < dev->attached_devices; i++) {
+            if (dev->backdev[i]->bdev) {
+                bdev = dev->backdev[i]->bdev;
+                b = bdev->bd_disk->queue;
+                if (b->merge_bvec_fn) {
+                        backing_limit = b->merge_bvec_fn(b, bvm, bvec);
+                        limit = min(limit, backing_limit);
+                }
+                if ((limit >> 9) > max_hw_sectors) 
+                        limit = max_hw_sectors << 9;
+            }
+        }
+        return limit;
+}
+
 static int order_devices(struct tier_device *dev)
 {
 	int swap = 0;
@@ -2464,6 +2499,7 @@ static int tier_register(struct tier_device *dev)
 	 */
 	blk_queue_logical_block_size(dev->rqueue, dev->logical_block_size);
 	blk_queue_io_opt(dev->rqueue, BLKSIZE);
+        blk_queue_merge_bvec(dev->rqueue, btier_merge_bvec);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,0,0)
 	if (dev->barrier)
 		blk_queue_flush(dev->rqueue, REQ_FLUSH | REQ_FUA);
@@ -2508,7 +2544,6 @@ static int tier_register(struct tier_device *dev)
 	dev->aioname = as_sprintf("%s-aio", dev->devname);
 	dev->migration_queue = create_workqueue(dev->managername);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,36)
-	//dev->aio_queue = alloc_ordered_workqueue(dev->aioname, 0);
 	dev->aio_queue = alloc_workqueue(dev->aioname, WQ_HIGHPRI, 64);
 #else
 	dev->aio_queue = create_workqueue(dev->aioname);
