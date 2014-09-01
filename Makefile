@@ -1,4 +1,4 @@
-KDIR := /usr/src/linux
+KDIR := /lib/modules/$(shell uname -r)/build
 PWD := $(shell pwd)
 CC := gcc -O2
 
