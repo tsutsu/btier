@@ -415,6 +415,7 @@ static int read_tiered(void *data, unsigned int len,
         unsigned int chunksize=PAGE_SIZE;
 	int keep = 0;
         struct tier_device *dev = bio_task->dev;
+	struct bio *parent_bio  = bio_task->parent_bio;
 
 	if (dev->iotype == RANDOM)
 		dev->stats.rand_reads++;
@@ -449,12 +450,21 @@ static int read_tiered(void *data, unsigned int len,
 			device = binfo->device - 1;
 			if (dev->backdev[device]->bdev
 			    && dev->use_bio == USE_BIO) {
-                                if(done == 0) {
-                                     chunksize = get_chunksize(dev->backdev[device]->bdev);
-                                     if ( bio_task->parent_bio->bi_size <= chunksize &&
-                                          block_offset + bio_task->parent_bio->bi_size <= BLKSIZE )
-                                         bio_task->in_one = 1;
-                                }
+				#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0)
+				if(done == 0) {
+					chunksize = get_chunksize(dev->backdev[device]->bdev);
+					if (parent_bio->bi_iter.bi_size <= chunksize &&
+					    block_offset + parent_bio->bi_iter.bi_size <= BLKSIZE)
+						bio_task->in_one = 1;
+				}
+				#else
+				if(done == 0) {
+					chunksize = get_chunksize(dev->backdev[device]->bdev);
+					if (parent_bio->bi_size <= chunksize &&
+					    block_offset + parent_bio->bi_size <= BLKSIZE)
+						bio_task->in_one = 1;
+				}
+				#endif
 				res =
 				    tier_read_page(device, bvec,
 						   binfo->offset + block_offset,
@@ -795,6 +805,7 @@ static int write_tiered(void *data, unsigned int len,
 	unsigned int device;
         unsigned int chunksize=PAGE_SIZE;
         struct tier_device *dev = bio_task->dev;
+	struct bio *parent_bio  = bio_task->parent_bio;
 
 	if (dev->iotype == RANDOM)
 		dev->stats.rand_writes++;
@@ -826,12 +837,21 @@ static int write_tiered(void *data, unsigned int len,
 		}
 		device = binfo->device - 1;
 		if (dev->backdev[device]->bdev && dev->use_bio == USE_BIO) {
+			#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0)
                         if(done == 0) {
-                             chunksize = get_chunksize(dev->backdev[device]->bdev);
-                             if ( bio_task->parent_bio->bi_size <= chunksize &&
-                                 block_offset + bio_task->parent_bio->bi_size <= BLKSIZE )
-                                 bio_task->in_one = 1;
+				chunksize = get_chunksize(dev->backdev[device]->bdev);
+				if (parent_bio->bi_iter.bi_size <= chunksize &&
+				    block_offset + parent_bio->bi_iter.bi_size <= BLKSIZE)
+					bio_task->in_one = 1;
                         }
+			#else
+                        if(done == 0) {
+				chunksize = get_chunksize(dev->backdev[device]->bdev);
+				if (parent_bio->bi_size <= chunksize &&
+				    block_offset + parent_bio->bi_size <= BLKSIZE)
+					bio_task->in_one = 1;
+                        }
+			#endif
 			res =
 			    tier_write_page(device, bvec,
 					    binfo->offset + block_offset,
