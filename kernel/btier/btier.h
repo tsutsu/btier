@@ -302,12 +302,13 @@ typedef struct {
 
 typedef struct {
 	struct work_struct work;
-	struct tier_device *dev;
 	u64 offset;
 	unsigned int device;
 	void *data;
 	unsigned int size;
 	struct page *bv_page;
+	struct bio_vec *bvec;
+        struct bio_task *bio_task;
 } aio_work_t;
 
 void free_bitlists(struct tier_device *);

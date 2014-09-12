@@ -15,7 +15,7 @@
 
 #define TRUE 1
 #define FALSE 0
-#define TIER_VERSION "1.3.5"
+#define TIER_VERSION "1.3.7"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Mark Ruijter");
@@ -188,16 +188,22 @@ void btier_clear_statistics(struct tier_device *dev)
 
 static void aio_reader(struct work_struct *work)
 {
-	aio_work_t *rwork;
-	struct tier_device *dev;
+	aio_work_t *rwork = (aio_work_t *) work;
+	struct bio_task *bio_task = rwork->bio_task;
+	struct tier_device *dev = bio_task->dev;
 	int res;
 
 	set_user_nice(current, -20);
-	rwork = (aio_work_t *) work;
-	dev = rwork->dev;
-	res =
-	    tier_file_read(dev, rwork->device,
-			   rwork->data, rwork->size, rwork->offset);
+        if (bio_task->vfs) {
+	    res =
+	        tier_file_read(dev, rwork->device,
+	    		   rwork->data, rwork->size, rwork->offset);
+        } else {
+            res =
+         	tier_read_page(rwork->device, rwork->bvec,
+		rwork->offset,
+		bio_task);
+        }
 	if (res < 0)
 		tiererror(dev, "read failed");
 	atomic_dec(&dev->aio_pending);
@@ -206,20 +212,21 @@ static void aio_reader(struct work_struct *work)
 	kfree(work);
 }
 
-static int read_aio(struct tier_device *dev, int device, char *data, int size,
-		    u64 offset, struct page *bv_page)
+static int read_aio(struct bio_task *bio_task, int device, char *data, int size,
+		    u64 offset, struct bio_vec *bvec)
 {
 	int ret = 0;
 	aio_work_t *rwork;
+        struct tier_device *dev = bio_task->dev;
 	rwork = kzalloc(sizeof(aio_work_t), GFP_NOFS);
 	if (!rwork)
 		return -ENOMEM;
-	rwork->dev = dev;
 	rwork->data = data;
 	rwork->offset = offset;
 	rwork->size = size;
 	rwork->device = device;
-	rwork->bv_page = bv_page;
+	rwork->bv_page = bvec->bv_page;
+        rwork->bio_task = bio_task;
 	atomic_inc(&dev->aio_pending);
 	INIT_WORK((struct work_struct *)rwork, aio_reader);
 	if (!queue_work(dev->aio_queue, (struct work_struct *)rwork))
@@ -465,20 +472,30 @@ static int read_tiered(void *data, unsigned int len,
 						bio_task->in_one = 1;
 				}
 				#endif
-				res =
-				    tier_read_page(device, bvec,
-						   binfo->offset + block_offset,
-						   bio_task);
+                                if (dev->iotype == RANDOM) {
+                                        keep = 1;
+                                        res =
+                                            read_aio(bio_task, device,
+                                                     data + done, size,
+                                                     binfo->offset +
+                                                     block_offset,
+                                                     bvec);
+                                } else {
+				    res =
+				        tier_read_page(device, bvec,
+				    		   binfo->offset + block_offset,
+				    		   bio_task);
+                                }
 			} else {
 				bio_task->vfs = 1;
 				if (dev->iotype == RANDOM) {
 					keep = 1;
-					res =
-					    read_aio(dev, device,
-						     data + done, size,
-						     binfo->offset +
-						     block_offset,
-						     bvec->bv_page);
+                                        res =
+                                            read_aio(bio_task, device,
+                                                     data + done, size,
+                                                     binfo->offset +
+                                                     block_offset,
+                                                     bvec);
 				} else {
 					res =
 					    tier_file_read(dev, device,
@@ -1428,6 +1445,8 @@ static inline void tier_wait_bio(struct bio_task *bio_task)
 		set_debug_info(dev, WAITAIOPENDING);
 		wait_event(dev->aio_event, 0 == atomic_read(&dev->aio_pending));
 		clear_debug_info(dev, WAITAIOPENDING);
+		if (dev->writethrough)
+			tier_sync(dev);
 	}
 	if (bio_task->vfs) {
 		if (dev->inerror)
@@ -2580,7 +2599,7 @@ static int tier_register(struct tier_device *dev)
 	dev->aioname = as_sprintf("%s-aio", dev->devname);
 	dev->migration_queue = create_workqueue(dev->managername);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,36)
-	dev->aio_queue = alloc_workqueue(dev->aioname, WQ_HIGHPRI, 64);
+	dev->aio_queue = alloc_workqueue(dev->aioname, WQ_UNBOUND, 64);
 #else
 	dev->aio_queue = create_workqueue(dev->aioname);
 #endif
