@@ -451,14 +451,14 @@ static int read_tiered(void *data, unsigned int len,
 			if (dev->backdev[device]->bdev
 			    && dev->use_bio == USE_BIO) {
 				#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0)
-				if(done == 0) {
+				if(done == 0 && offset == (parent_bio->bi_iter.bi_sector << 9)) {
 					chunksize = get_chunksize(dev->backdev[device]->bdev);
 					if (parent_bio->bi_iter.bi_size <= chunksize &&
 					    block_offset + parent_bio->bi_iter.bi_size <= BLKSIZE)
 						bio_task->in_one = 1;
 				}
 				#else
-				if(done == 0) {
+				if(done == 0 && offset == (parent_bio->bi_sector << 9)) {
 					chunksize = get_chunksize(dev->backdev[device]->bdev);
 					if (parent_bio->bi_size <= chunksize &&
 					    block_offset + parent_bio->bi_size <= BLKSIZE)
@@ -838,14 +838,14 @@ static int write_tiered(void *data, unsigned int len,
 		device = binfo->device - 1;
 		if (dev->backdev[device]->bdev && dev->use_bio == USE_BIO) {
 			#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0)
-                        if(done == 0) {
+                        if(done == 0 && offset == (parent_bio->bi_iter.bi_sector << 9)) {
 				chunksize = get_chunksize(dev->backdev[device]->bdev);
 				if (parent_bio->bi_iter.bi_size <= chunksize &&
 				    block_offset + parent_bio->bi_iter.bi_size <= BLKSIZE)
 					bio_task->in_one = 1;
                         }
 			#else
-                        if(done == 0) {
+                        if(done == 0 && offset == (parent_bio->bi_sector << 9)) {
 				chunksize = get_chunksize(dev->backdev[device]->bdev);
 				if (parent_bio->bi_size <= chunksize &&
 				    block_offset + parent_bio->bi_size <= BLKSIZE)
