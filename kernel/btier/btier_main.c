@@ -645,6 +645,7 @@ static int tier_bio_io(struct tier_device *dev, unsigned int device,
 	int bv;
 	void *buf;
 	struct page *page;
+	unsigned int remain;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0)
 	struct bvec_iter iter;
 	struct bio_vec bvec;
@@ -654,6 +655,9 @@ static int tier_bio_io(struct tier_device *dev, unsigned int device,
 #endif
 
 	bvecs = size >> PAGE_SHIFT;
+	if ((bvecs << PAGE_SHIFT) < size)
+		bvecs++;	
+
 	bio = bio_alloc(GFP_NOIO, bvecs);
 	if (!bio) {
 		tiererror(dev, "bio_alloc failed from tier_bio_io\n");
@@ -672,20 +676,32 @@ static int tier_bio_io(struct tier_device *dev, unsigned int device,
 	bio->bi_size = size;
 	bio->bi_idx = 0;
 #endif
+
+	remain = size;
 	for (bv = 0; bv < bvecs; bv++) {
                 page = alloc_page(GFP_NOIO);
                 if (!page) {
                         tiererror(dev, "tier_bio_io : alloc_page failed\n");
                         return -EIO;
                 }
+
                 if (rw == WRITE) {
                         buf = kmap(page);
-                        memcpy(buf, &buffer[PAGE_SIZE * bv], PAGE_SIZE);
+			if (PAGE_SIZE <= remain)
+				memcpy(buf, &buffer[PAGE_SIZE * bv], PAGE_SIZE);
+			else
+				memcpy(buf, &buffer[PAGE_SIZE * bv], remain);
                         kunmap(page);
                 }
-		bio->bi_io_vec[bv].bv_len = PAGE_SIZE;
+
+		if (PAGE_SIZE <= remain)
+			bio->bi_io_vec[bv].bv_len = PAGE_SIZE;
+		else
+			bio->bi_io_vec[bv].bv_len = remain;
 		bio->bi_io_vec[bv].bv_offset = 0;
 		bio->bi_io_vec[bv].bv_page = page;
+
+		remain -= PAGE_SIZE;
         }
         bio_get(bio);
 	res = submit_bio_wait(rw, bio);
