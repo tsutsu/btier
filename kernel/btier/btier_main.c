@@ -472,6 +472,10 @@ static int read_tiered(void *data, unsigned int len,
 						bio_task->in_one = 1;
 				}
 				#endif
+
+				if(done)
+					atomic_inc(&bio_task->pending);
+
                                 if (dev->iotype == RANDOM) {
                                         keep = 1;
                                         res =
