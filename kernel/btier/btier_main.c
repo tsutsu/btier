@@ -881,6 +881,10 @@ static int write_tiered(void *data, unsigned int len,
 					bio_task->in_one = 1;
                         }
 			#endif
+
+			if(done)
+				atomic_inc(&bio_task->pending);
+
 			res =
 			    tier_write_page(device, bvec,
 					    binfo->offset + block_offset,
