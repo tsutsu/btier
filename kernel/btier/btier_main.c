@@ -557,12 +557,16 @@ static struct bio *prepare_bio_req(struct tier_device *dev, unsigned int device,
   
         if (bio_task->in_one) {
              bio = bio_clone(bio_task->parent_bio, GFP_NOIO);
-             if (!bio)
+             if (!bio) {
                   tiererror(dev, "bio_clone failed\n");
+                  return NULL;
+             }
         } else {
 	     bio = bio_alloc(GFP_NOIO, 1);
-             if (!bio)
+             if (!bio) {
                   tiererror(dev, "bio_clone failed\n");
+                  return NULL;
+             } 
 	     bio->bi_bdev = bdev;
 	     bio->bi_io_vec[0].bv_page = bvec->bv_page;
 	     bio->bi_io_vec[0].bv_len = bvec->bv_len;
@@ -594,8 +598,10 @@ static int tier_write_page(unsigned int device,
         struct tier_device *dev = bio_task->dev;
         set_debug_info(dev, BIOWRITE);
         bio = prepare_bio_req(dev, device, bvec, offset, bio_task);
-        if (!bio)
+        if (!bio) {
                 tiererror(dev, "bio_alloc failed from tier_write_page\n");
+                return -EIO;
+        }
         bio->bi_end_io = bio_write_done;
         bio->bi_rw = WRITE;
         atomic_inc(&dev->aio_pending);
@@ -612,8 +618,10 @@ static int tier_read_page(unsigned int device,
         struct tier_device *dev = bio_task->dev;
 	set_debug_info(dev, BIOREAD);
 	bio = prepare_bio_req(dev, device, bvec, offset, bio_task);
-	if (!bio)
+	if (!bio) {
 		tiererror(dev, "bio_alloc failed from tier_write_page\n");
+                return -EIO;
+        }
 	bio->bi_end_io = bio_read_done;
 	bio->bi_rw = READ;
 	atomic_inc(&dev->aio_pending);
@@ -1981,6 +1989,9 @@ static int tier_thread(void *data)
 		bio_task[i] = kzalloc(sizeof(struct bio_task), GFP_KERNEL);
 		if (!bio_task[i]) {
 			tiererror(dev, "tier_thread : alloc failed");
+                        for (i--; i >= 0; i--) {
+                            kfree(bio_task[i]);
+                        }
 			return -ENOMEM;
 		}
 		bio_task[i]->dev = dev;
