@@ -1,3 +1,10 @@
+/*
+ * Btier block list and bit list calculation functions, shared by btier
+ * kernel module and btier command line programs.
+ *
+ * Copyright (C) 2014 Mark Ruijter, <mruijter@gmail.com>
+ */
+
 #include "btier.h"
 
 u64 __udivmoddi4(u64 num, u64 den, u64 * rem_p)
@@ -5,12 +12,15 @@ u64 __udivmoddi4(u64 num, u64 den, u64 * rem_p)
 	u64 quot = 0, qbit = 1;
 
 	if (den == 0) {
-		return 1 / ((unsigned)den);	/* Intentional divide by zero, without
-						   triggering a compiler warning which
-						   would abort the build */
+		return 1 / ((unsigned)den);	
+		/*
+		 * Intentional divide by zero, without
+		 * triggering a compiler warning which 
+		 * would abort the build 
+		 */
 	}
 
-/* Left-justify denominator and count shift */
+	/* Left-justify denominator and count shift */
 	while ((int64_t) den >= 0) {
 		den <<= 1;
 		qbit <<= 1;

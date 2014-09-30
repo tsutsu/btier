@@ -1,9 +1,16 @@
+#ifndef _BTIER_H_
+#define _BTIER_H_
+
 #ifdef __KERNEL__
 #define pr_fmt(fmt) "btier: " fmt
 #include <linux/bio.h>
+#include <linux/slab.h>
+#include <linux/gfp.h>
+#include <linux/mempool.h>
 #include <linux/blkdev.h>
 #include <linux/spinlock.h>
 #include <linux/mutex.h>
+#include <linux/rwsem.h>
 #include <linux/file.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -20,7 +27,8 @@
 #include <linux/err.h>
 #include <linux/scatterlist.h>
 #include <linux/workqueue.h>
-#include <linux/rbtree.h>
+#include <linux/completion.h>
+//#include <linux/rbtree.h>
 #include <linux/miscdevice.h>
 #include <linux/delay.h>
 #include <linux/falloc.h>
@@ -28,10 +36,10 @@
 #include <linux/version.h>
 #include <linux/sysfs.h>
 #include <linux/device.h>
-#include <linux/socket.h>
-#include <linux/in.h>
-#include <linux/net.h>
-#include <linux/inet.h>
+//#include <linux/socket.h>
+//#include <linux/in.h>
+//#include <linux/net.h>
+//#include <linux/inet.h>
 #include <asm/div64.h>
 #else
 typedef unsigned long long u64;
@@ -121,16 +129,17 @@ typedef unsigned long u32;
 #define MAX_STAT_DECAY 500000	/* Loose 5% hits per walk when we have reached the max */
 #ifndef MAX_PERFORMANCE
 enum states {
-	IDLE = 0,
-	BIOREAD = 1,
-	VFSREAD = 2,
-	VFSWRITE = 4,
-	BIOWRITE = 8,
-	WAITAIOPENDING = 16,
-	PRESYNC = 32,
-	PREBINFO = 64,
-	PREALLOCBLOCK = 128,
-	DISCARD = 512
+	IDLE		= 0,
+	BIOREAD		= 1,
+	VFSREAD		= 2,
+	VFSWRITE	= 4,
+	BIOWRITE	= 8,
+	BIO		= 16,
+	WAITAIOPENDING  = 32,
+	PRESYNC		= 64,
+	PREBINFO	= 128,
+	PREALLOCBLOCK	= 256,
+	DISCARD		= 512
 };
 #endif
 
@@ -142,7 +151,7 @@ struct data_policy {
 	u64 migration_interval;
 };
 
-struct blockinfo {
+struct physical_blockinfo {
 	unsigned int device;
 	u64 offset;
 	time_t lastused;
@@ -155,8 +164,8 @@ struct devicemagic {
 	unsigned int device;
 	unsigned int clean;
 	u64 blocknr_journal;
-	struct blockinfo binfo_journal_new;
-	struct blockinfo binfo_journal_old;
+	struct physical_blockinfo binfo_journal_new;
+	struct physical_blockinfo binfo_journal_old;
 	unsigned int average_reads;
 	unsigned int average_writes;
 	u64 total_reads;
@@ -184,17 +193,51 @@ struct fd_s {
 #ifdef __KERNEL__
 
 struct bio_task {
-	atomic_t pending;
+	//atomic_t pending;
 	struct bio *parent_bio;
+	struct bio bio;        /* the cloned bio */
 	struct tier_device *dev;
-	int vfs;
-        int in_one;
+	/*Holds the type of IO random or sequential*/
+	int iotype;
+        //int in_one;
 };
 
 typedef struct {
 	struct file *fp;
 	mm_segment_t fs;
 } file_info_t;
+
+/*
+ * This structure has same members as physical_blockinfo, other than the
+ * reserved, the order of members is intended to remove unaligned memory
+ * access on 64 bit machine;
+ * The addition of reserved won't increase memory, due to kmalloc paddings, 
+ * but adding any one more member later will double its actual size. 
+ */
+struct blockinfo {
+	u32 reserved;
+	unsigned int device;
+	u64 offset;
+	time_t lastused;
+	unsigned int readcount;
+	unsigned int writecount;
+};
+
+struct bio_meta {
+	struct work_struct work;
+	struct completion event;
+	struct tier_device *dev;
+	struct bio *parent_bio;
+	struct bio bio;        /* the cloned bio */
+	struct blockinfo *binfo;
+	int ret;
+	u64 offset;
+	u64 blocknr;
+	unsigned int size;
+	unsigned flush:1;
+	unsigned discard:1;
+	unsigned allocate:1;
+};
 
 struct backing_device {
 	struct file *fds;
@@ -205,22 +248,24 @@ struct backing_device {
 	u64 startofbitlist;
 	u64 startofblocklist;
 	u64 bitbufoffset;
-	u64 free_offset;
+	atomic64_t free_offset;
 	u64 usedoffset;
 	unsigned int dirty;
 	struct devicemagic *devmagic;
-	struct kobject *ex_kobj;
+	spinlock_t magic_lock;
 	struct blockinfo **blocklist;
 	u8 *bitlist;
+	/* dev_alloc_lock, protects bitlist, usedoffset and free_offset*/
+	spinlock_t dev_alloc_lock;
 	unsigned int ra_pages;
 	struct block_device *bdev;
 };
 
 struct tier_stats {
-	u64 seq_reads;
-	u64 rand_reads;
-	u64 seq_writes;
-	u64 rand_writes;
+	atomic64_t seq_reads;
+	atomic64_t rand_reads;
+	atomic64_t seq_writes;
+	atomic64_t rand_writes;
 };
 
 struct migrate_direct {
@@ -231,85 +276,98 @@ struct migrate_direct {
 
 struct tier_device {
 	struct list_head list;
+
 	int major_num;
 	int tier_device_number;
 	int active;
 	int attached_devices;
+
 	int (*ioctl) (struct tier_device *, int cmd, u64 arg);
+
 	u64 nsectors;
 	unsigned int logical_block_size;
 	struct backing_device **backdev;
 	struct block_device *tier_device;
-	struct mutex tier_ctl_mutex;
 	u64 size;
 	u64 blocklistsize;
-	spinlock_t lock;
-	spinlock_t statlock;
-	spinlock_t usage_lock;
+	/* block lock for per block meta data*/
+	struct mutex *block_lock;
 	spinlock_t dbg_lock;
+
 	struct gendisk *gd;
-	struct workqueue_struct *migration_queue;	/* Data migration */
-	struct workqueue_struct *aio_queue;	/* Async IO */
-	struct task_struct *tier_thread;
-	struct bio_list tier_bio_list;
+	/* Data migration work queue*/
+	struct workqueue_struct *migration_wq;
 	struct request_queue *rqueue;
+
+	/* mempool for bio_task data structure*/
+	mempool_t *bio_task;
+	/* mempool for bio_meta data structure*/
+	mempool_t *bio_meta;
+
 	char *devname;
 	char *managername;
 	char *aioname;
+
 	atomic_t migrate;
 	atomic_t aio_pending;
 	atomic_t wqlock;
-	atomic_t commit;
-	atomic_t curfd;
+
 	int debug_state;
-	unsigned int commit_interval;
 	int barrier;
 	int stop;
-/*Holds the type of IO random or sequential*/
-	int iotype;
-/*Last blocknr written or read*/
+
+	/*io_seq_lock is used to protect lastblocknr and insequence*/
+	spinlock_t io_seq_lock;
+	/*Last blocknr written or read*/
 	u64 lastblocknr;
-	u64 resumeblockwalk;
-/*Incremented if current blocknr == lastblocknr -1 or +1 */
+	/*Incremented if current blocknr == lastblocknr -1 or +1 */
 	unsigned int insequence;
-	u64 cacheentries;
-	struct mutex qlock;
-	wait_queue_head_t tier_event;
+
+	struct tier_stats stats;
+
+	u64 resumeblockwalk;
+	struct rw_semaphore qlock;
 	wait_queue_head_t migrate_event;
 	wait_queue_head_t aio_event;
 	struct timer_list migrate_timer;
-	struct tier_stats stats;
 	struct migrate_direct mgdirect;
 	int migrate_verbose;
+
 	int ptsync;
 	int discard_to_devices;
 	int discard;
 	int writethrough;
-/* Where do we initially store sequential IO */
+
+	/* Where do we initially store sequential IO */
 	int inerror;
-/* The blocknr that the user can retrieve info for via sysfs*/
+
+	/* The blocknr that the user can retrieve info for via sysfs*/
 	u64 user_selected_blockinfo;
 	int user_selected_ispaged;
 	unsigned int users;
-	int use_bio;
-	char zero_buf[PAGE_SIZE];
 };
 
-typedef struct {
+struct tier_work{
 	struct work_struct work;
 	struct tier_device *device;
-} tier_worker_t;
+};
 
-typedef struct {
-	struct work_struct work;
-	u64 offset;
-	unsigned int device;
-	void *data;
-	unsigned int size;
-	struct page *bv_page;
-	struct bio_vec *bvec;
-        struct bio_task *bio_task;
-} aio_work_t;
+extern struct workqueue_struct *btier_wq;
+
+int get_chunksize(struct block_device *);
+struct blockinfo *get_blockinfo(struct tier_device *, u64, int);
+void tier_make_request(struct request_queue *q, struct bio *old_bio);
+int tier_thread(void *data);
+
+int write_blocklist(struct tier_device *, u64, struct blockinfo *, int);
+void set_debug_info(struct tier_device *dev, int state);
+void clear_debug_info(struct tier_device *dev, int state);
+int allocate_dev(struct tier_device *dev, u64 blocknr,
+			struct blockinfo *binfo, int device);
+void tiererror(struct tier_device *dev, char *msg);
+int tier_sync(struct tier_device *dev);
+void discard_on_real_device(struct tier_device *dev,
+				   struct blockinfo *binfo);
 
 void free_bitlists(struct tier_device *);
 void resize_tier(struct tier_device *);
@@ -317,9 +375,10 @@ int load_bitlists(struct tier_device *);
 void *as_sprintf(const char *, ...);
 u64 allocated_on_device(struct tier_device *, int);
 void btier_clear_statistics(struct tier_device *dev);
-struct blockinfo *get_blockinfo(struct tier_device *, u64, int);
 int migrate_direct(struct tier_device *, u64, int);
 char *tiger_hash(char *, unsigned int);
 void btier_lock(struct tier_device *);
 void btier_unlock(struct tier_device *);
 #endif
+
+#endif /* _BTIER_H_ */
