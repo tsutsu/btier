@@ -1365,7 +1365,9 @@ static int tier_do_bio(struct bio_task *bio_task)
 				 offset, bio->bi_size);
 			tier_discard(dev, offset, bio->bi_size);
 #endif
-			set_debug_info(dev, DISCARD);
+			clear_debug_info(dev, DISCARD);
+			
+			goto out;
 		}
 #endif
 	}
@@ -1433,13 +1435,13 @@ static int tier_do_bio(struct bio_task *bio_task)
 		}
 	}
 
+out:
 	if (atomic_dec_and_test(&bio_task->pending)) {
 		if (dev->inerror) {
 			bio_endio(bio_task->parent_bio, -EIO);
 		} else
 			bio_endio(bio_task->parent_bio, 0);
 	}
-out:
 	atomic_set(&dev->wqlock, 0);
 	mutex_unlock(&dev->qlock);
 	return ret;
@@ -2635,6 +2637,8 @@ static int tier_register(struct tier_device *dev)
 	blk_queue_max_discard_sectors(dev->rqueue, get_capacity(dev->gd));
 	dev->rqueue->limits.discard_granularity = BLKSIZE;
 	dev->rqueue->limits.discard_alignment = BLKSIZE;
+	set_bit(QUEUE_FLAG_NONROT, &dev->rqueue->queue_flags);
+	set_bit(QUEUE_FLAG_DISCARD, &dev->rqueue->queue_flags);
 #endif
 	tier_sysfs_init(dev);
 	/* let user-space know about the new size */

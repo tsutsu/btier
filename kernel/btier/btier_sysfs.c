@@ -206,7 +206,7 @@ static ssize_t tier_attr_discard_store(struct tier_device *dev,
 	if ('0' == buf[0]) {
 		if (dev->discard) {
 			dev->discard = 0;
-			pr_info("discard_to_devices is disabled\n");
+			pr_info("discard is disabled\n");
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,0,0)
 			queue_flag_clear_unlocked(QUEUE_FLAG_DISCARD,
 						  dev->rqueue);
