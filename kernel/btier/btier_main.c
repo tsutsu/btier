@@ -300,8 +300,17 @@ static void clear_dev_list(struct tier_device *dev, struct blockinfo *binfo)
 
 	offset = binfo->offset - backdev->startofdata;
 	boffset = offset >> BLKBITS;
+
 	tier_file_write(dev, binfo->device - 1,
 			&unallocated, 1, backdev->startofbitlist + boffset);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,0,0)
+	vfs_fsync_range(backdev->fds, backdev->startofbitlist + boffset, 1,
+			    FSMODE);
+#else
+	vfs_fsync_range(backdev->fds, backdev->fds->f_path.dentry,
+			      backdev->startofbitlist + boffset, 1, FSMODE);
+#endif
+
 	if (backdev->free_offset > boffset)
 		backdev->free_offset = boffset;
 	if (backdev->bitlist)
@@ -317,7 +326,7 @@ static int allocate_dev(struct tier_device *dev, u64 blocknr,
 	u64 relative_offset = 0;
 	int ret = 0;
 	unsigned int buffercount;
-	cur = backdev->free_offset >> 12;
+	cur = backdev->free_offset >> PAGE_SHIFT;
 	/* The bitlist may be loaded into memory or be NULL if not */
 	while (0 == binfo->device && (cur * PAGE_SIZE) < backdev->bitlistsize) {
 		buffer = &backdev->bitlist[cur * PAGE_SIZE];
