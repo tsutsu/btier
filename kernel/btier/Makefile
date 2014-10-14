@@ -3,6 +3,7 @@ btier-objs :=
 btier-objs += btier_common.o
 btier-objs += btier_sysfs.o
 btier-objs += btier_main.o 
+btier-objs += btier_request.o 
 
 default:
 	cd ../../; make 
