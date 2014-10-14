@@ -11,6 +11,7 @@
 #include <linux/spinlock.h>
 #include <linux/mutex.h>
 #include <linux/rwsem.h>
+#include <linux/atomic.h>
 #include <linux/file.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -227,6 +228,7 @@ struct bio_meta {
 	struct work_struct work;
 	struct completion event;
 	struct tier_device *dev;
+	struct bio_task *bt;
 	struct bio *parent_bio;
 	struct bio bio;        /* the cloned bio */
 	struct blockinfo *binfo;
@@ -248,7 +250,7 @@ struct backing_device {
 	u64 startofbitlist;
 	u64 startofblocklist;
 	u64 bitbufoffset;
-	atomic64_t free_offset;
+	u64 free_offset;
 	u64 usedoffset;
 	unsigned int dirty;
 	struct devicemagic *devmagic;
@@ -353,11 +355,13 @@ struct tier_work{
 };
 
 extern struct workqueue_struct *btier_wq;
+extern struct kmem_cache *bio_task_cache;
 
-int get_chunksize(struct block_device *);
+unsigned int get_chunksize(struct block_device *bdev, struct bio *bio);
 struct blockinfo *get_blockinfo(struct tier_device *, u64, int);
 void tier_make_request(struct request_queue *q, struct bio *old_bio);
-int tier_thread(void *data);
+void tier_request_exit(void);
+int tier_request_init(void);
 
 int write_blocklist(struct tier_device *, u64, struct blockinfo *, int);
 void set_debug_info(struct tier_device *dev, int state);
@@ -368,6 +372,9 @@ void tiererror(struct tier_device *dev, char *msg);
 int tier_sync(struct tier_device *dev);
 void discard_on_real_device(struct tier_device *dev,
 				   struct blockinfo *binfo);
+void clear_dev_list(struct tier_device *dev, struct blockinfo *binfo);
+void reset_counters_on_migration(struct tier_device *dev,
+					struct blockinfo *binfo);
 
 void free_bitlists(struct tier_device *);
 void resize_tier(struct tier_device *);

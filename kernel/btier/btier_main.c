@@ -15,7 +15,7 @@
 
 #define TRUE 1
 #define FALSE 0
-#define TIER_VERSION "1.3.7"
+#define TIER_VERSION "2.0.0"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Mark Ruijter");
@@ -236,7 +236,7 @@ static int mark_offset_as_used(struct tier_device *dev, int device, u64 offset)
 	return ret;
 }
 
-static void clear_dev_list(struct tier_device *dev, struct blockinfo *binfo)
+void clear_dev_list(struct tier_device *dev, struct blockinfo *binfo)
 {
 	u64 offset;
 	u64 boffset;
@@ -435,9 +435,22 @@ static int tier_bio_io_paged(struct tier_device *dev, unsigned int device,
 	unsigned int done;
 	struct block_device *bdev = dev->backdev[device]->bdev;
 	int res = 0;
+        struct request_queue *q = bdev_get_queue(bdev);
         unsigned int chunksize;
+        unsigned int max_hwsectors_kb;
 
-        chunksize = get_chunksize(bdev);
+	/* temporary fix to work with raid devices, will change later */
+	if (q->merge_bvec_fn) {
+		chunksize = PAGE_SIZE;
+	} else {
+		max_hwsectors_kb = queue_max_hw_sectors(q);
+		chunksize = max_hwsectors_kb << 9;
+		if (chunksize < PAGE_SIZE)
+		    chunksize = PAGE_SIZE;
+		if (chunksize > BLKSIZE)
+		    chunksize = BLKSIZE;
+	}
+
 	for (done = 0; done < size; done += chunksize) {
                 if (chunksize < (size - done)) 
 		    res =
@@ -761,7 +774,7 @@ void discard_on_real_device(struct tier_device *dev,
 	}
 }
 
-static void reset_counters_on_migration(struct tier_device *dev,
+void reset_counters_on_migration(struct tier_device *dev,
 					struct blockinfo *binfo)
 {
 	struct backing_device *backdev = dev->backdev[binfo->device - 1];
@@ -1683,7 +1696,6 @@ static int alloc_blocklock(struct tier_device *dev)
 
 static void free_blocklock(struct tier_device *dev)
 {
-	unsigned int size;
 	u64 i, blocks = dev->size >> BLKBITS;
 
 	if (!dev->block_lock)
@@ -1738,7 +1750,6 @@ static int tier_register(struct tier_device *dev)
 						bio_task_cache)) ||
 	    !(dev->bio_meta = mempool_create_kmalloc_pool(32, 
 						sizeof(struct bio_meta))) ||
-	    !(btier_wq = alloc_workqueue("kbtier", WQ_MEM_RECLAIM, 0)) ||
 	    alloc_blocklock(dev) ||
 	    !(q = blk_alloc_queue(GFP_KERNEL))) {
 		pr_err("Memory allocation failed in tier_register \n");
@@ -1765,10 +1776,10 @@ static int tier_register(struct tier_device *dev)
 	atomic_set(&dev->wqlock, 0);
 	atomic_set(&dev->aio_pending, 0);
 	atomic_set(&dev->mgdirect.direct, 0);
-	dev->stats.seq_reads   = ATOMIC64_INIT(0);
-	dev->stats.rand_reads  = ATOMIC64_INIT(0);
-	dev->stats.seq_writes  = ATOMIC64_INIT(0);
-	dev->stats.rand_writes = ATOMIC64_INIT(0);
+	atomic64_set(&dev->stats.seq_reads, 0);
+	atomic64_set(&dev->stats.rand_reads, 0);
+	atomic64_set(&dev->stats.seq_writes, 0);
+	atomic64_set(&dev->stats.rand_writes, 0);
 	init_rwsem(&dev->qlock);
 
 	/* Set queue make_request_fn */
@@ -1933,8 +1944,6 @@ static void tier_deregister(struct tier_device *dev)
 		/* wait all current requests to finish */
 		if (0 != atomic_read(&dev->aio_pending))
 			wait_event(dev->aio_event, 0 == atomic_read(&dev->aio_pending));
-		if (dev->btier_wq)
-			destroy_workqueue(dev->btier_wq);
 
 		wake_up(&dev->migrate_event);
 		if (dev->migration_wq)
@@ -2488,7 +2497,8 @@ static int __init tier_init(void)
 {
 	int r;
 
-	if (tier_request_init())
+	if (!(btier_wq = alloc_workqueue("kbtier", WQ_MEM_RECLAIM, 0)) ||
+	    tier_request_init())
 		goto end_nomem;
 
 	/* First register out control device */
@@ -2517,6 +2527,9 @@ end_nomem:
 static void __exit tier_exit(void)
 {
 	struct tier_device *tier, *next;
+
+	if (btier_wq)
+		destroy_workqueue(btier_wq);
 
 	list_for_each_entry_safe(tier, next, &device_list, list)
 	    tier_deregister(tier);

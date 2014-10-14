@@ -6,6 +6,24 @@
 
 #include "btier.h"
 
+#define sprintf_one_var(buf, var)						\
+	sprintf(buf,							\
+		__builtin_types_compatible_p(typeof(var), int)		\
+		     ? "%i\n" :						\
+		__builtin_types_compatible_p(typeof(var), unsigned)	\
+		     ? "%u\n" :						\
+		__builtin_types_compatible_p(typeof(var), long)		\
+		     ? "%li\n" :					\
+		__builtin_types_compatible_p(typeof(var), unsigned long)\
+		     ? "%lu\n" :					\
+		__builtin_types_compatible_p(typeof(var), int64_t)	\
+		     ? "%lli\n" :					\
+		__builtin_types_compatible_p(typeof(var), uint64_t)	\
+		     ? "%llu\n" :					\
+		__builtin_types_compatible_p(typeof(var), const char *)	\
+		     ? "%s\n" : "%i\n", var)
+
+
 extern struct list_head device_list;
 extern struct mutex tier_devices_mutex;
 
@@ -209,7 +227,7 @@ static ssize_t tier_attr_discard_store(struct tier_device *dev,
 	if ('0' == buf[0]) {
 		if (dev->discard) {
 			dev->discard = 0;
-			pr_info("discard_to_devices is disabled\n");
+			pr_info("discard is disabled\n");
 			queue_flag_clear_unlocked(QUEUE_FLAG_DISCARD,
 						  dev->rqueue);
 		}
@@ -698,9 +716,10 @@ static ssize_t tier_attr_numwrites_show(struct tier_device *dev, char *buf)
 {
 	int len;
 
-	len = sprintf(buf, "sequential %llu random %llu\n",
-		      atomic64_read(&dev->stats.seq_writes),
-		      atomic64_read(&dev->stats.rand_writes));
+	len = sprintf(buf, "sequential ");
+	len += sprintf_one_var(buf+len, atomic64_read(&dev->stats.seq_writes));
+	len += sprintf(buf+len, ", Random ");
+	len += sprintf_one_var(buf+len, atomic64_read(&dev->stats.rand_writes));
 
 	return len;
 }
@@ -709,9 +728,10 @@ static ssize_t tier_attr_numreads_show(struct tier_device *dev, char *buf)
 {
 	int len;
 
-	len = sprintf(buf, "sequential %llu random %llu\n",
-		      atomic64_read(&dev->stats.seq_reads),
-		      atomic64_read(&dev->stats.rand_reads));
+	len = sprintf(buf, "sequential ");
+	len += sprintf_one_var(buf+len, atomic64_read(&dev->stats.seq_reads));
+	len += sprintf(buf+len, ", Random ");
+	len += sprintf_one_var(buf+len, atomic64_read(&dev->stats.rand_reads));
 
 	return len;
 }

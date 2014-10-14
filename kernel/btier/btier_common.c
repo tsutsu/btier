@@ -85,16 +85,16 @@ u64 calc_blocklist_size(u64 total_device_size, u64 total_bitlist_size)
 	u64 round;
 	u64 netdevsize;
 	u64 blocks;
-	u64 binfosize = sizeof(struct blockinfo);
+	u64 binfosize = sizeof(struct physical_blockinfo);
 
 	netdevsize = total_device_size - total_bitlist_size;
 	blocks = BLKSIZE / binfosize;
 	blocks++;
 	blocklistsize = netdevsize / blocks;
 	round = blocklistsize / binfosize;
-	round *= sizeof(struct blockinfo);
+	round *= sizeof(struct physical_blockinfo);
 	if (round < blocklistsize)
-		blocklistsize = round + sizeof(struct blockinfo);
+		blocklistsize = round + sizeof(struct physical_blockinfo);
 	round = blocklistsize / BLKSIZE;
 	round *= BLKSIZE;
 	if (round < blocklistsize)

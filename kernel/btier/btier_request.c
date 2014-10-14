@@ -14,7 +14,7 @@
 
 struct kmem_cache *bio_task_cache;
 
-static unsigned int get_chunksize(struct block_device *bdev,
+unsigned int get_chunksize(struct block_device *bdev,
 				  struct bio *bio)
 {
         struct request_queue *q = bdev_get_queue(bdev);
@@ -52,7 +52,7 @@ static unsigned int get_chunksize(struct block_device *bdev,
 	chunksize =  min(ret, chunksize);
 	WARN_ON(!chunksize);
 	/* chunksize should be aligned with sectors */
-	WARN_ON(chunksize&(1 << 9 - 1));
+	WARN_ON(chunksize&((1 << 9) - 1));
 
 	ret = max_t(int, chunksize, bio_iovec(bio).bv_len);
 
@@ -84,7 +84,6 @@ static inline void determine_iotype(struct bio_task *bt, u64 blocknr)
 {
 	int ioswitch = 0;
 	struct tier_device *dev = bt->dev;
-	int rw = bio_rw(bt->parent_bio);
 
 	spin_lock(&dev->io_seq_lock);
 
@@ -135,6 +134,7 @@ static void bio_fill_zero(struct bio *bio, unsigned int size)
 static int binfo_sanity(struct tier_device *dev, struct blockinfo *binfo)
 {
 	struct backing_device *backdev = dev->backdev[binfo->device - 1];
+
 	if (binfo->device > dev->attached_devices) {
 		pr_info
 		    ("Metadata corruption detected : device %u, dev->attached_devices %u\n",
@@ -206,16 +206,18 @@ err_ret:
 }
 
 static int allocate_block(struct tier_device *dev, u64 blocknr,
-			  struct blockinfo *binfo)
+			  struct blockinfo *binfo,
+			  struct bio_task *bt)
 {
 	int device = 0;
 	int count = 0;
+	struct backing_device *backdev = dev->backdev[0];
 
 	/* Sequential writes will go to SAS or SATA */
-	if (dev->iotype == SEQUENTIAL && dev->attached_devices > 1) {
+	if (bt->iotype == SEQUENTIAL && dev->attached_devices > 1) {
 		spin_lock(&backdev->magic_lock);
 		device =
-		    dev->backdev[0]->devmagic->dtapolicy.sequential_landing;
+		    backdev->devmagic->dtapolicy.sequential_landing;
 		spin_unlock(&backdev->magic_lock);
 	}
 
@@ -300,7 +302,7 @@ static void tier_meta_work(struct work_struct *work)
 	struct bio_meta *bm = container_of(work, struct bio_meta, work);
 	struct tier_device *dev = bm->dev;
 	struct bio *bio = &bm->bio;
-	struct bio *parent_bio = &bm->parent_bio;
+	struct bio *parent_bio = bm->parent_bio;
 	int i, ret = 0;
 
 	/*
@@ -311,7 +313,10 @@ static void tier_meta_work(struct work_struct *work)
 		/* send this zero size bio to every backing device*/
 		set_debug_info(dev, PRESYNC);
 		for (i = 0; i < dev->attached_devices; i++) {
+			bio_init(bio);
+			__bio_clone_fast(bio, parent_bio);
 			bio->bi_bdev = dev->backdev[i]->bdev;
+			/* no need to set bi_end_io and bi_private */
 			ret |= submit_bio_wait(bio->bi_rw, bio);
 		}
 		clear_debug_info(dev, PRESYNC);
@@ -326,7 +331,7 @@ static void tier_meta_work(struct work_struct *work)
 
 	if (bm->allocate) {
 		set_debug_info(dev, PREALLOCBLOCK);
-		ret = allocate_block(dev, bm->blocknr, bm->binfo);
+		ret = allocate_block(dev, bm->blocknr, bm->binfo, bm->bt);
 		clear_debug_info(dev, PREALLOCBLOCK);
 		if (ret != 0)
 			pr_crit("Failed to allocate_block\n");
@@ -342,7 +347,7 @@ static void tier_submit_and_wait_meta(struct bio_meta *bm)
 	struct tier_device *dev = bm->dev;
 
 	init_completion(&bm->event);
-	INIT_WORK(&bm->work, tier_dev_meta);
+	INIT_WORK(&bm->work, tier_meta_work);
 	ret = queue_work(btier_wq, &bm->work);
 	BUG_ON(!ret);
 
@@ -373,7 +378,7 @@ static void tier_submit_and_wait_meta(struct bio_meta *bm)
 static inline void tier_dev_nodata(struct tier_device *dev,
 				   struct bio *parent_bio)
 {
-	bio_meta *bm;
+	struct bio_meta *bm;
 
 	bm = mempool_alloc(dev->bio_meta, GFP_NOIO);
 	memset(bm, 0, sizeof(*bm));
@@ -381,9 +386,6 @@ static inline void tier_dev_nodata(struct tier_device *dev,
 	bm->dev = dev;
 	bm->flush = (parent_bio->bi_rw & (REQ_FLUSH|REQ_FUA)) != 0;
 	bm->parent_bio = parent_bio;
-
-	bio_init(&bm->bio);
-	__bio_clone_fast(&bm->bio, parent_bio);
 	
 	tier_submit_and_wait_meta(bm);
 }
@@ -391,7 +393,7 @@ static inline void tier_dev_nodata(struct tier_device *dev,
 static inline void tier_dev_discard(struct tier_device *dev,
 				    struct bio *parent_bio)
 {
-	bio_meta *bm;
+	struct bio_meta *bm;
 
 	bm = mempool_alloc(dev->bio_meta, GFP_NOIO);
 	memset(bm, 0, sizeof(*bm));
@@ -405,9 +407,10 @@ static inline void tier_dev_discard(struct tier_device *dev,
 
 static inline void tier_dev_allocate(struct tier_device *dev,
 				    u64 blocknr,
-				    struct block_info *binfo)
+				    struct blockinfo *binfo,
+				    struct bio_task *bt)
 {
-	bio_meta *bm;
+	struct bio_meta *bm;
 
 	bm = mempool_alloc(dev->bio_meta, GFP_NOIO);
 	memset(bm, 0, sizeof(*bm));
@@ -416,22 +419,24 @@ static inline void tier_dev_allocate(struct tier_device *dev,
 	bm->allocate = 1;
 	bm->binfo = binfo;
 	bm->blocknr = blocknr;
+	bm->bt = bt;
 
 	tier_submit_and_wait_meta(bm);
 }
+
 static void request_endio(struct bio *bio, int err)
 {
-	struct bio_task *bio_task = bio->bi_private;
-	struct tier_device *dev = bio_task->dev;
+	struct bio_task *bt = bio->bi_private;
+	struct tier_device *dev = bt->dev;
 
 	if (err) {
-		bio_endio(bio_task->parent_bio, -EIO);
+		bio_endio(bt->parent_bio, -EIO);
 	} else
-		bio_endio(bio_task->parent_bio, 0);
+		bio_endio(bt->parent_bio, 0);
 
 	atomic_dec(&dev->aio_pending);
 	wake_up(&dev->aio_event);
-	mempool_free(bio_task, dev->bio_task);
+	mempool_free(bt, dev->bio_task);
 }
 
 static void tier_submit_bio(struct tier_device *dev,
@@ -452,13 +457,17 @@ static void tier_submit_bio(struct tier_device *dev,
 
 static void tiered_dev_access(struct tier_device *dev, struct bio_task *bt)
 {
-	struct bio *bio = bt->bio;
+	struct bio *bio = &bt->bio;
 	u64 end_blk, cur_blk = 0, offset;
-	struct block_info *binfo;
+	struct blockinfo *binfo;
 	unsigned int offset_in_blk, size_in_blk;
 	int rw = bio_rw(bt->parent_bio);
 
-	end_blk = (bio_end_sector(bio) << 9) >> BLKBITS;
+	/*pr_info("dev_access, rw:%d, start sector:%lld, size:%lld\n", rw,
+					bt->parent_bio->bi_iter.bi_sector,
+					bt->parent_bio->bi_iter.bi_size);*/
+	
+	end_blk = ((bio_end_sector(bio) - 1) << 9) >> BLKBITS;
 
 	while (cur_blk <= end_blk) {
 		offset = bio->bi_iter.bi_sector << 9;
@@ -487,7 +496,7 @@ static void tiered_dev_access(struct tier_device *dev, struct bio_task *bt)
 			bio_advance(bio, size_in_blk);
 
 			/* total splits is 0 and it's now last blk of bio.*/
-			if (1 == atomic_read(bio->bi_remaining) && 
+			if (1 == atomic_read(&bio->bi_remaining) && 
 			    cur_blk == end_blk) {
 				if (dev->inerror)
 					bio_endio(bt->parent_bio, -EIO);
@@ -499,15 +508,17 @@ static void tiered_dev_access(struct tier_device *dev, struct bio_task *bt)
 
 			/* total splits > 0 and it's now last blk of bio */
 			if (atomic_read(&bio->bi_remaining) > 1 && 
-			    cur_blk == end_blk)
+			    cur_blk == end_blk) {
 				atomic_dec(&bio->bi_remaining);
+				goto bio_submitted_lastbio;
+			}
 
 			continue;
 		}
 
 		/* write unallocated space, allocate a new block */
 		if (rw && 0 == binfo->device) {
-			tier_dev_allocate(dev, cur_blk, binfo);
+			tier_dev_allocate(dev, cur_blk, binfo, bt);
 
 			if(0 == binfo->device) {
 				/*
@@ -526,12 +537,13 @@ static void tiered_dev_access(struct tier_device *dev, struct bio_task *bt)
 		unsigned int device = binfo->device - 1;
 
 		do {
-			cur_chunk = get_chunksize(dev, bio);
+			cur_chunk = get_chunksize(dev->backdev[device]->bdev,
+						  bio);
 			if (cur_chunk > (size_in_blk - done))
 				cur_chunk = size_in_blk - done;
 	
 			/* if no splits, and it's now last blk of bio */
-			if (1 == atomic_read(bio->bi_remaining) && 
+			if (1 == atomic_read(&bio->bi_remaining) && 
 			    cur_blk == end_blk && 
 			    cur_chunk == size_in_blk) {
 				start = (binfo->offset + offset_in_blk) >> 9;
@@ -554,12 +566,14 @@ static void tiered_dev_access(struct tier_device *dev, struct bio_task *bt)
 				bio_chain(split, bio);
 				start = (binfo->offset + offset_in_blk + done)
 					>> 9;
-				mutex_unlock(dev->block_lock + cur_blk);
 				tier_submit_bio(dev, device, split, start);
 			}
 
 			done += cur_chunk;
 		} while (done != size_in_blk);
+
+		/* splitting in current block is done, go to next block.*/
+		mutex_unlock(dev->block_lock + cur_blk);
 	}
 
 	return;
@@ -590,6 +604,8 @@ static inline struct bio_task *task_alloc(struct tier_device *dev,
 	__bio_clone_fast(bio, parent_bio);
 	bio->bi_end_io  = request_endio;
 	bio->bi_private = bt;
+
+	return bt;
 }
 
 void tier_make_request(struct request_queue *q, struct bio *parent_bio)
