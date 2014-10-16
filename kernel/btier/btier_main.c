@@ -795,12 +795,18 @@ static int get_chunksize(struct block_device *bdev)
         unsigned int chunksize;
         unsigned int max_hwsectors_kb;
 
-        max_hwsectors_kb = queue_max_hw_sectors(q);
-        chunksize = max_hwsectors_kb << 9;
-        if ( chunksize < PAGE_SIZE )
-            chunksize = PAGE_SIZE;
-        if ( chunksize > BLKSIZE )
-            chunksize = BLKSIZE;
+	/* workaround fix to work with mdraid devices, such as mdraid10 */
+	if (q->merge_bvec_fn) {
+		chunksize = PAGE_SIZE;
+	} else {
+		max_hwsectors_kb = queue_max_hw_sectors(q);
+		chunksize = max_hwsectors_kb << 9;
+		if ( chunksize < PAGE_SIZE )
+		    chunksize = PAGE_SIZE;
+		if ( chunksize > BLKSIZE )
+		    chunksize = BLKSIZE;
+	}
+
         return chunksize;
 }
 
@@ -2338,41 +2344,6 @@ char *btier_uuid(struct tier_device *dev)
 	return asc;
 }
 
-/* This is called by bio_add_page().
- * q->max_hw_sectors and other global limits are already enforced there.
- *
- * We need to call down to our lower level device,
- * in case it has special restrictions.
- *
- * We also may need to enforce configured max-bio-bvecs limits.
- *
- * As long as the BIO is empty we have to allow at least one bvec,
- * regardless of size and offset, so no need to ask lower levels.
- */
-int btier_merge_bvec(struct request_queue *q, struct bvec_merge_data *bvm, struct bio_vec *bvec)
-{
-        struct tier_device *dev = (struct tier_device *) q->queuedata;
-	struct block_device *bdev;
-        unsigned int max_hw_sectors = queue_max_hw_sectors(q);
-        int limit = BLKSIZE;
-        int i, backing_limit;
-        struct request_queue *b;
-
-	for (i = 0; i < dev->attached_devices; i++) {
-            if (dev->backdev[i]->bdev) {
-                bdev = dev->backdev[i]->bdev;
-                b = bdev->bd_disk->queue;
-                if (b->merge_bvec_fn) {
-                        backing_limit = b->merge_bvec_fn(b, bvm, bvec);
-                        limit = min(limit, backing_limit);
-                }
-                if ((limit >> 9) > max_hw_sectors) 
-                        limit = max_hw_sectors << 9;
-            }
-        }
-        return limit;
-}
-
 static int order_devices(struct tier_device *dev)
 {
 	int swap = 0;
@@ -2584,7 +2555,6 @@ static int tier_register(struct tier_device *dev)
 	 */
 	blk_queue_logical_block_size(dev->rqueue, dev->logical_block_size);
 	blk_queue_io_opt(dev->rqueue, BLKSIZE);
-        blk_queue_merge_bvec(dev->rqueue, btier_merge_bvec);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,0,0)
 	if (dev->barrier)
 		blk_queue_flush(dev->rqueue, REQ_FLUSH | REQ_FUA);
