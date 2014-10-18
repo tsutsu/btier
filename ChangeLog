@@ -1,5 +1,13 @@
         release                 : 1.3.7 2014-09-12
-                                : Enable threaded async IO for random read and BIO
+                                : Signed-off-by: Jianjian Huo
+                                : Workaround fixes to have btier work on top of other make_request devices, such as mdraid.
+                                : Fix a bug which btier device couldn't be deregistered.
+                                : Added queue DISCARD and NONROT flag, fixed one discard related bug.
+                                : Increase bio_task->pending, for write_tiered
+                                : Increase bio_task->pending, in case one segment of a bio is across block boundary.
+                                : Signed-off-by: Mark Ruijter
+                                : Fix a minor bug in btier_setup
+                                : Fix various error handling conditions
         release                 : 1.3.6 2014-09-12
                                 : Signed-off-by, thanks to: Jianjian Huo
                                 : Fix possible data corruption issue in write/read_tiered functions.
