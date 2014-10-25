@@ -1,11 +1,9 @@
 /*
  * Btier bio request handling related funtions, block layer will call btier
  * make_request to handle block read and write requests.
- *
  * Copyright (C) 2014 Mark Ruijter, <mruijter@gmail.com>
  * 
- * Btier bio make_request handling rewrite, fine grained locking in blocklist,
- * and etc. Jianjian Huo <samuel.huo@gmail.com> - September 2014.
+ * Btier2 changes, Copyright (C) 2014 Jianjian Huo, <samuel.huo@gmail.com>
  * Get_chunksize function is from bcache.
  * 
  */
@@ -13,6 +11,22 @@
 #include "btier.h"
 
 struct kmem_cache *bio_task_cache;
+
+static void tier_submit_bio(struct tier_device *dev,
+				unsigned int device,
+				struct bio *bio,
+				sector_t start_sector)
+{
+	struct block_device *bdev = dev->backdev[device]->bdev;
+
+	set_debug_info(dev, BIO);
+
+	bio->bi_iter.bi_sector	= start_sector;
+	bio->bi_bdev		= bdev;
+
+	generic_make_request(bio);
+	clear_debug_info(dev, BIO);
+}
 
 unsigned int get_chunksize(struct block_device *bdev,
 				  struct bio *bio)
@@ -60,6 +74,91 @@ unsigned int get_chunksize(struct block_device *bdev,
             chunksize = BLKSIZE;
 
         return chunksize;
+}
+
+static int tier_moving_io(struct tier_device *dev,
+			  struct blockinfo *binfo,
+			  int rw)
+{
+	struct block_device *bdev = dev->backdev[binfo->device - 1]->bdev;
+	struct bio *bio = dev->moving_bio; 
+	unsigned int done = 0;
+	unsigned int cur_chunk = 0;
+	int res = 0;
+
+	if (!bdev)
+		return -EPERM;
+
+	bio_reset(bio);
+	bio->bi_bdev = bdev;
+	bio->bi_rw = rw;
+	bio->bi_vcnt = BLKSIZE >> PAGE_SHIFT;
+	bio->bi_iter.bi_sector = binfo->offset >> 9;
+	bio->bi_iter.bi_size = BLKSIZE;
+	bio->bi_iter.bi_idx = 0;
+        bio->bi_iter.bi_bvec_done = 0;
+
+	/*pr_info("tier_moving_io, rw:%d, start sector:%lld, device:%d\n", rw,
+					bio->bi_iter.bi_sector,
+					binfo->device);*/
+
+	do {
+		cur_chunk = get_chunksize(bdev, bio);
+		if (cur_chunk > (BLKSIZE - done))
+			cur_chunk = BLKSIZE - done;
+
+		/* if no splits, and whole block is in one bio */
+		if (1 == atomic_read(&bio->bi_remaining) && 
+		    cur_chunk == BLKSIZE) {
+			set_debug_info(dev, BIO);
+			res = submit_bio_wait(rw, bio);
+			clear_debug_info(dev, BIO);
+			return res;
+		}
+
+		struct bio *split;
+		sector_t start = 0;
+		split = bio_next_split(bio, cur_chunk >> 9, 
+				       GFP_NOIO, fs_bio_set);
+		if (split == bio) {
+			set_debug_info(dev, BIO);
+			res = submit_bio_wait(rw, bio);
+			clear_debug_info(dev, BIO);
+			return res;
+		} else {
+			bio_chain(split, bio);
+			start = (binfo->offset + done) >> 9;
+			tier_submit_bio(dev, binfo->device - 1, split, start);
+		}
+
+		done += cur_chunk;
+	} while (done != BLKSIZE);
+
+	WARN_ON(1);
+	return -EPERM;
+}
+
+int tier_moving_block(struct tier_device *dev,
+		      struct blockinfo *olddevice,
+		      struct blockinfo *newdevice)
+{
+	int res;
+
+	/* read the block from olddevice to moving_bio */
+	res = tier_moving_io(dev, olddevice, READ);
+	if (res) {
+		tiererror(dev, "tier_moving_block : read failed\n");
+		return -EIO;
+	}
+
+	/* write the block from moving_bio to newdevice */
+	res = tier_moving_io(dev, newdevice, WRITE);
+	if (res) {
+		tiererror(dev, "tier_moving_block : write failed\n");
+		return -EIO;
+	}
+
+	return 0;
 }
 
 static inline void increase_iostats(struct bio_task *bt)
@@ -437,22 +536,6 @@ static void request_endio(struct bio *bio, int err)
 	atomic_dec(&dev->aio_pending);
 	wake_up(&dev->aio_event);
 	mempool_free(bt, dev->bio_task);
-}
-
-static void tier_submit_bio(struct tier_device *dev,
-				unsigned int device,
-				struct bio *bio,
-				sector_t start_sector)
-{
-	struct block_device *bdev = dev->backdev[device]->bdev;
-
-	set_debug_info(dev, BIO);
-
-	bio->bi_iter.bi_sector	= start_sector;
-	bio->bi_bdev		= bdev;
-
-	generic_make_request(bio);
-	clear_debug_info(dev, BIO);
 }
 
 static void tiered_dev_access(struct tier_device *dev, struct bio_task *bt)

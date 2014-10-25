@@ -7,6 +7,14 @@
  *
  * Redistributable under the terms of the GNU GPL.
  * Author: Mark Ruijter, mruijter@gmail.com
+ *
+ *
+ * Btier2: bio make_request path rewrite to handle parallel bio requests, new
+ * per-block fine grained locking mechanism; tier data moving rewrite to work 
+ * with other make_request devices better, such as mdraid10; VFS mode removed,
+ * aio_thread and tier_thread removed; passing sync to all underlying devices, 
+ * and etc. Copyright (C) 2014 Jianjian Huo, <samuel.huo@gmail.com>
+ * 
  */
 
 #include "btier.h"
@@ -343,127 +351,6 @@ static int tier_file_write(struct tier_device *dev, unsigned int device,
 	if (bw >= 0)
 		bw = -EIO;
 	return bw;
-}
-
-static int tier_bio_io(struct tier_device *dev, unsigned int device,
-		       char *buffer, unsigned int size, u64 offset, int rw)
-{
-	struct bio *bio;
-	struct block_device *bdev = dev->backdev[device]->bdev;
-	int bvecs;
-	int res;
-	int bv;
-	void *buf;
-	struct page *page;
-	unsigned int remain;
-	struct bvec_iter iter;
-	struct bio_vec bvec;
-        unsigned bytes;
-
-	bvecs = size >> PAGE_SHIFT;
-	if ((bvecs << PAGE_SHIFT) < size)
-		bvecs++;	
-
-	bio = bio_alloc(GFP_NOIO, bvecs);
-	if (!bio) {
-		tiererror(dev, "bio_alloc failed from tier_bio_io\n");
-		return -EIO;
-	}
-	bio->bi_bdev = bdev;
-	bio->bi_rw = rw;
-	bio->bi_vcnt = bvecs;
-	bio->bi_iter.bi_sector = offset >> 9;
-	bio->bi_iter.bi_size = size;
-	bio->bi_iter.bi_idx = 0;
-        bio->bi_iter.bi_bvec_done = 0;
-	
-	remain = size;
-	for (bv = 0; bv < bvecs; bv++) {
-                page = alloc_page(GFP_NOIO);
-                if (!page) {
-                        tiererror(dev, "tier_bio_io : alloc_page failed\n");
-                        return -EIO;
-                }
-                if (rw == WRITE) {
-                        buf = kmap(page);
-			if (PAGE_SIZE <= remain)
-				memcpy(buf, &buffer[PAGE_SIZE * bv], PAGE_SIZE);
-			else
-				memcpy(buf, &buffer[PAGE_SIZE * bv], remain);
-                        kunmap(page);
-                }
-
-		if (PAGE_SIZE <= remain)
-			bio->bi_io_vec[bv].bv_len = PAGE_SIZE;
-		else
-			bio->bi_io_vec[bv].bv_len = remain;
-		bio->bi_io_vec[bv].bv_offset = 0;
-		bio->bi_io_vec[bv].bv_page = page;
-
-		remain -= PAGE_SIZE;
-        }
-        bio_get(bio);
-	res = submit_bio_wait(rw, bio);
-
-        bio->bi_iter.bi_sector = offset >> 9;
-        bio->bi_iter.bi_size = size;
-        bio->bi_iter.bi_idx = 0;
-        iter = bio->bi_iter;
-        bytes = 0;
-	bio_for_each_segment(bvec, bio, iter) {
-                if (rw == READ) {
-                        buf = kmap_atomic(bvec.bv_page);
-			memcpy(&buffer[bytes], buf, bvec.bv_len);
-                        kunmap_atomic(buf);
-                }
-                bytes += bvec.bv_len;
-                __free_page(bvec.bv_page);
-        }
-
-	bio_put(bio);
-	if (res) {
-		tiererror(dev, "tier_bio_io : read/write failed\n");
-		return -EIO;
-	}
-	return res;
-}
-
-static int tier_bio_io_paged(struct tier_device *dev, unsigned int device,
-			     char *buffer, unsigned int size, u64 offset,
-			     int rw)
-{
-	unsigned int done;
-	struct block_device *bdev = dev->backdev[device]->bdev;
-	int res = 0;
-        struct request_queue *q = bdev_get_queue(bdev);
-        unsigned int chunksize;
-        unsigned int max_hwsectors_kb;
-
-	/* temporary fix to work with raid devices, will change later */
-	if (q->merge_bvec_fn) {
-		chunksize = PAGE_SIZE;
-	} else {
-		max_hwsectors_kb = queue_max_hw_sectors(q);
-		chunksize = max_hwsectors_kb << 9;
-		if (chunksize < PAGE_SIZE)
-		    chunksize = PAGE_SIZE;
-		if (chunksize > BLKSIZE)
-		    chunksize = BLKSIZE;
-	}
-
-	for (done = 0; done < size; done += chunksize) {
-                if (chunksize < (size - done)) 
-		    res =
-		        tier_bio_io(dev, device, buffer + done, chunksize,
-		    		offset + done, rw);
-                else
-		    res =
-		        tier_bio_io(dev, device, buffer + done, size - done,
-		    		offset + done, rw);
-		if (res)
-			break;
-	}
-	return res;
 }
 
 /**
@@ -830,7 +717,6 @@ static int copyblock(struct tier_device *dev, struct blockinfo *newdevice,
 		     struct blockinfo *olddevice, u64 curblock)
 {
 	int devicenr = newdevice->device - 1;
-	char *buffer;
 	int res = 0;
 
 	newdevice->device = 0;
@@ -842,36 +728,22 @@ static int copyblock(struct tier_device *dev, struct blockinfo *newdevice,
 	newdevice->readcount = 0;
 	newdevice->writecount = 0;
 	newdevice->lastused = get_seconds();
+
 	if (newdevice->device == olddevice->device) {
 		pr_err
 		    ("copyblock : refuse to migrate block to current device %u -> %u\n",
 		     newdevice->device, olddevice->device);
 		return 0;
 	}
+
 	allocate_dev(dev, curblock, newdevice, devicenr);
 
 	/* No space on the device to copy to is not an error */
 	if (0 == newdevice->device)
 		return 0;
-	buffer = vzalloc(BLKSIZE);
-	if (!buffer) {
-		pr_err("copyblock: vzalloc failed, cancel operation\n");
-		return 0;
-	}
 
-	if (dev->backdev[olddevice->device - 1]->bdev)
-		res =
-		    tier_bio_io_paged(dev, olddevice->device - 1, buffer,
-				      BLKSIZE, olddevice->offset, READ);
-
-	if (res != 0)
-		goto end_error;
-
-	if (dev->backdev[newdevice->device - 1]->bdev)
-		res =
-		    tier_bio_io_paged(dev, newdevice->device - 1, buffer,
-				      BLKSIZE, newdevice->offset, WRITE);
-
+	/* the actual data moving */
+	res = tier_moving_block(dev, olddevice, newdevice);
 	if (res != 0)
 		goto end_error;
 
@@ -879,7 +751,7 @@ static int copyblock(struct tier_device *dev, struct blockinfo *newdevice,
 	write_blocklist(dev, curblock, newdevice, WA);
 	sync_device(dev, newdevice->device - 1);
 	clean_blocklist_journal(dev, olddevice->device - 1);
-	vfree(buffer);
+
 	if (dev->migrate_verbose)
 		pr_info
 		    ("migrated blocknr %llu from device %u-%llu to device %u-%llu\n",
@@ -889,7 +761,6 @@ static int copyblock(struct tier_device *dev, struct blockinfo *newdevice,
 
 end_error:
 	pr_err("copyblock: read failed, cancelling operation\n");
-	vfree(buffer);
 	return 0;
 }
 
@@ -1643,12 +1514,6 @@ static int order_devices(struct tier_device *dev)
 		dtapolicy->sequential_landing = 0;
 	if (0 == dtapolicy->migration_interval)
 		dtapolicy->migration_interval = MIGRATE_INTERVAL;
-	if (!dev->writethrough) {
-		dev->writethrough = dev->backdev[0]->devmagic->writethrough;
-	} else {
-		pr_info("write-through (sync) io selected\n");
-		dev->backdev[0]->devmagic->writethrough = dev->writethrough;
-	}
 
 	if (!clean)
 		repair_bitlists(dev);
@@ -1673,6 +1538,57 @@ static void register_new_device_size(struct tier_device *dev)
 	revalidate_disk(dev->gd);
 	/* let user-space know about the new size */
 	kobject_uevent(&disk_to_dev(dev->gd)->kobj, KOBJ_CHANGE);
+}
+
+static int alloc_moving_bio(struct tier_device *dev)
+{
+	int bvecs, bv;
+	struct bio *bio;
+	struct page *page;
+
+	bvecs = BLKSIZE >> PAGE_SHIFT;
+
+	bio = bio_alloc(GFP_NOIO, bvecs);
+	if (!bio) {
+		tiererror(dev, "bio_alloc failed from alloc_moving_bio\n");
+		return -ENOMEM;
+	}
+	dev->moving_bio = bio;
+
+	for (bv = 0; bv < bvecs; bv++) {
+                page = alloc_page(GFP_NOIO);
+                if (!page) {
+                        tiererror(dev, "alloc_moving_bio: alloc_page failed\n");
+			return -ENOMEM;
+                }
+
+		bio->bi_io_vec[bv].bv_len = PAGE_SIZE;
+		bio->bi_io_vec[bv].bv_offset = 0;
+		bio->bi_io_vec[bv].bv_page = page;
+        }
+
+        bio_get(bio);
+
+	return 0;
+}
+
+static void free_moving_bio(struct tier_device *dev)
+{
+	int bvecs, bv;
+	struct bio *bio = dev->moving_bio;
+	struct page *page;
+
+	bvecs = BLKSIZE >> PAGE_SHIFT;
+
+	for (bv = 0; bv < bvecs; bv++) {
+		page = bio->bi_io_vec[bv].bv_page;
+		if(page)
+			__free_page(page);
+		bio->bi_io_vec[bv].bv_page = NULL;
+	}
+
+	bio_put(bio);
+	dev->moving_bio = NULL;
 }
 
 static int alloc_blocklock(struct tier_device *dev)
@@ -1723,9 +1639,6 @@ static int tier_register(struct tier_device *dev)
 		return -1;
 	dev->active = 1;
 	
-	/* Barriers can not be used when we work in ram only */
-	dev->barrier = 1;
-	
 	if (0 == dev->logical_block_size)
 		dev->logical_block_size = 512;
 	if (dev->logical_block_size != 512 &&
@@ -1751,6 +1664,7 @@ static int tier_register(struct tier_device *dev)
 	    !(dev->bio_meta = mempool_create_kmalloc_pool(32, 
 						sizeof(struct bio_meta))) ||
 	    alloc_blocklock(dev) ||
+	    alloc_moving_bio(dev) ||
 	    !(q = blk_alloc_queue(GFP_KERNEL))) {
 		pr_err("Memory allocation failed in tier_register \n");
 		ret = -ENOMEM;
@@ -1802,8 +1716,7 @@ static int tier_register(struct tier_device *dev)
 	q->limits.discard_alignment	= BLKSIZE;
 	set_bit(QUEUE_FLAG_NONROT,      &q->queue_flags);
 	set_bit(QUEUE_FLAG_DISCARD,     &q->queue_flags);
-	if (dev->barrier)
-		blk_queue_flush(q, REQ_FLUSH | REQ_FUA);
+	blk_queue_flush(q, REQ_FLUSH | REQ_FUA);
 
 	/*
 	 * Get registered.
@@ -1911,7 +1824,7 @@ static int tier_set_fd(struct tier_device *dev, struct fd_s *fds,
 	backdev->ra_pages = file->f_ra.ra_pages;
 
 	if (file->f_flags & O_SYNC) {
-		dev->writethrough = 1;
+		//dev->writethrough = 1;
 		/* Store this persistent on unload */
 		file->f_flags ^= O_SYNC;
 	}
@@ -1967,6 +1880,7 @@ static void tier_deregister(struct tier_device *dev)
 		free_blocklist(dev);
 		free_bitlists(dev);
 		free_blocklock(dev);
+		free_moving_bio(dev);
 
 		for (i = 0; i < dev->attached_devices; i++) {
 			mark_device_clean(dev, i);

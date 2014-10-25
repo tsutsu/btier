@@ -380,9 +380,11 @@ int get_opts(int argc, char *argv[])
 				printf
 				    ("Option -%c requires a device or file as argument.\n",
 				     optopt);
-			else
+			else {
 				parse_datafile(optarg);
                                 has_devices = 1;
+			}
+
 			break;
 		case 'd':
 			if (optopt == 'd')
@@ -391,6 +393,7 @@ int get_opts(int argc, char *argv[])
 				     optopt);
 			else {
 				mkoptions.device = optarg;
+				has_devices = 1;
 			}
 			break;
 		case 's':

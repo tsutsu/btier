@@ -2,11 +2,13 @@
  * Btier sysfs attributes and store/show functions.
  *
  * Copyright (C) 2014 Mark Ruijter, <mruijter@gmail.com>
+ *
+ * Btier2 changes, Copyright (C) 2014 Jianjian Huo, <samuel.huo@gmail.com>
  */
 
 #include "btier.h"
 
-#define sprintf_one_var(buf, var)						\
+#define sprintf_one_var(buf, var)					\
 	sprintf(buf,							\
 		__builtin_types_compatible_p(typeof(var), int)		\
 		     ? "%i\n" :						\
@@ -150,50 +152,12 @@ static ssize_t tier_attr_migration_enable_store(struct tier_device *dev,
 	return s;
 }
 
-static ssize_t tier_attr_barriers_store(struct tier_device *dev,
-					const char *buf, size_t s)
-{
-	if ('0' != buf[0] && '1' != buf[0])
-		return s;
-	if ('0' == buf[0]) {
-		if (dev->barrier) {
-			dev->barrier = 0;
-			pr_info("barriers are disabled\n");
-		}
-	} else {
-		if (!dev->barrier) {
-			dev->barrier = 1;
-			pr_info("barriers are enabled\n");
-		}
-	}
-	return s;
-}
-
 static ssize_t tier_attr_clear_statistics_store(struct tier_device *dev,
 						const char *buf, size_t s)
 {
 	if (buf[0] != '1')
 		return -ENOMSG;
 	btier_clear_statistics(dev);
-	return s;
-}
-
-static ssize_t tier_attr_ptsync_store(struct tier_device *dev,
-				      const char *buf, size_t s)
-{
-	if ('0' != buf[0] && '1' != buf[0])
-		return s;
-	if ('0' == buf[0]) {
-		if (dev->ptsync) {
-			dev->ptsync = 0;
-			pr_info("pass-through sync is disabled\n");
-		}
-	} else {
-		if (!dev->ptsync) {
-			dev->ptsync = 1;
-			pr_info("pass-through sync is enabled\n");
-		}
-	}
 	return s;
 }
 
@@ -239,29 +203,6 @@ static ssize_t tier_attr_discard_store(struct tier_device *dev,
 						dev->rqueue);
 		}
 	}
-	return s;
-}
-
-static ssize_t tier_attr_writethrough_store(struct tier_device *dev,
-					    const char *buf, size_t s)
-{
-	struct devicemagic *magic = dev->backdev[0]->devmagic;
-	if ('0' != buf[0] && '1' != buf[0])
-		return s;
-	btier_lock(dev);
-	if ('0' == buf[0]) {
-		if (dev->writethrough) {
-			dev->writethrough = 0;
-			pr_info("writethrough is disabled\n");
-		}
-	} else {
-		if (!dev->writethrough) {
-			dev->writethrough = 1;
-			pr_info("writethrough is enabled\n");
-		}
-	}
-	magic->writethrough = dev->writethrough;
-	btier_unlock(dev);
 	return s;
 }
 
@@ -392,7 +333,7 @@ static ssize_t tier_attr_migrate_verbose_store(struct tier_device *dev,
 			pr_info("migrate_verbose is disabled\n");
 		}
 	} else {
-		if (!dev->ptsync) {
+		if (!dev->migrate_verbose) {
 			dev->migrate_verbose = 1;
 			pr_info("migrate_verbose is enabled\n");
 		}
@@ -617,16 +558,6 @@ static ssize_t tier_attr_size_in_blocks_show(struct tier_device *dev, char *buf)
 	return sprintf(buf, "%llu\n", dev->size / BLKSIZE);
 }
 
-static ssize_t tier_attr_barriers_show(struct tier_device *dev, char *buf)
-{
-	return sprintf(buf, "%i\n", dev->barrier);
-}
-
-static ssize_t tier_attr_ptsync_show(struct tier_device *dev, char *buf)
-{
-	return sprintf(buf, "%i\n", dev->ptsync);
-}
-
 static ssize_t tier_attr_discard_to_devices_show(struct tier_device *dev,
 						 char *buf)
 {
@@ -636,11 +567,6 @@ static ssize_t tier_attr_discard_to_devices_show(struct tier_device *dev,
 static ssize_t tier_attr_discard_show(struct tier_device *dev, char *buf)
 {
 	return sprintf(buf, "%i\n", dev->discard);
-}
-
-static ssize_t tier_attr_writethrough_show(struct tier_device *dev, char *buf)
-{
-	return sprintf(buf, "%i\n", dev->writethrough);
 }
 
 static ssize_t tier_attr_resize_show(struct tier_device *dev, char *buf)
@@ -803,11 +729,8 @@ end_error:
 
 TIER_ATTR_RW(sequential_landing);
 TIER_ATTR_RW(migrate_verbose);
-TIER_ATTR_RW(ptsync);
 TIER_ATTR_RW(discard_to_devices);
 TIER_ATTR_RW(discard);
-TIER_ATTR_RW(writethrough);
-TIER_ATTR_RW(barriers);
 TIER_ATTR_RW(migration_interval);
 TIER_ATTR_RW(migration_enable);
 TIER_ATTR_RW(migration_policy);
@@ -826,11 +749,8 @@ TIER_ATTR_WO(migrate_block);
 struct attribute *tier_attrs[] = {
 	&tier_attr_sequential_landing.attr,
 	&tier_attr_migrate_verbose.attr,
-	&tier_attr_ptsync.attr,
 	&tier_attr_discard_to_devices.attr,
 	&tier_attr_discard.attr,
-	&tier_attr_writethrough.attr,
-	&tier_attr_barriers.attr,
 	&tier_attr_migration_interval.attr,
 	&tier_attr_migration_enable.attr,
 	&tier_attr_migration_policy.attr,

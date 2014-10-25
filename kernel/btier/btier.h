@@ -29,7 +29,6 @@
 #include <linux/scatterlist.h>
 #include <linux/workqueue.h>
 #include <linux/completion.h>
-//#include <linux/rbtree.h>
 #include <linux/miscdevice.h>
 #include <linux/delay.h>
 #include <linux/falloc.h>
@@ -37,10 +36,6 @@
 #include <linux/version.h>
 #include <linux/sysfs.h>
 #include <linux/device.h>
-//#include <linux/socket.h>
-//#include <linux/in.h>
-//#include <linux/net.h>
-//#include <linux/inet.h>
 #include <asm/div64.h>
 #else
 typedef unsigned long long u64;
@@ -61,7 +56,7 @@ typedef unsigned long u32;
 #define BLKSIZE 1048576		/*Moving smaller blocks then 4M around
 				   will lead to fragmentation */
 #define BLKBITS 20		/*Adjust when changing BLKSIZE */
-#define PAGE_SHIFT 12		/*4k page size */
+//#define PAGE_SHIFT 12		/*4k page size */
 #define TIER_NAME_SIZE     64	/* Max lenght of the filenames */
 #define TIER_SET_FD        0xFE00
 #define TIER_SET_DEVSZ     0xFE03
@@ -315,7 +310,6 @@ struct tier_device {
 	atomic_t wqlock;
 
 	int debug_state;
-	int barrier;
 	int stop;
 
 	/*io_seq_lock is used to protect lastblocknr and insequence*/
@@ -334,11 +328,10 @@ struct tier_device {
 	struct timer_list migrate_timer;
 	struct migrate_direct mgdirect;
 	int migrate_verbose;
+	struct bio *moving_bio;
 
-	int ptsync;
 	int discard_to_devices;
 	int discard;
-	int writethrough;
 
 	/* Where do we initially store sequential IO */
 	int inerror;
@@ -358,6 +351,9 @@ extern struct workqueue_struct *btier_wq;
 extern struct kmem_cache *bio_task_cache;
 
 unsigned int get_chunksize(struct block_device *bdev, struct bio *bio);
+int tier_moving_block(struct tier_device *dev,
+		      struct blockinfo *olddevice,
+		      struct blockinfo *newdevice);
 struct blockinfo *get_blockinfo(struct tier_device *, u64, int);
 void tier_make_request(struct request_queue *q, struct bio *old_bio);
 void tier_request_exit(void);
