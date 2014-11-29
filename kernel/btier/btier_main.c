@@ -15,7 +15,7 @@
 
 #define TRUE 1
 #define FALSE 0
-#define TIER_VERSION "1.3.7"
+#define TIER_VERSION "1.3.8"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Mark Ruijter");

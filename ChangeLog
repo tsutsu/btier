@@ -1,3 +1,6 @@
+        release                 : 1.3.8 2014-11-29
+                                : Signed-off-by:Jianjian Huo
+                                : Fixed a bug which could cause a kernel crash.
         release                 : 1.3.7 2014-09-12
                                 : Signed-off-by: Jianjian Huo
                                 : Workaround fixes to have btier work on top of other make_request devices, such as mdraid.
