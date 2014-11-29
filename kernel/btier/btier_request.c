@@ -84,6 +84,8 @@ static int tier_moving_io(struct tier_device *dev,
 	struct bio *bio = dev->moving_bio; 
 	unsigned int done = 0;
 	unsigned int cur_chunk = 0;
+	struct bio *split;
+        sector_t start;
 	int res = 0;
 
 	if (!bdev)
@@ -97,10 +99,6 @@ static int tier_moving_io(struct tier_device *dev,
 	bio->bi_iter.bi_size = BLKSIZE;
 	bio->bi_iter.bi_idx = 0;
         bio->bi_iter.bi_bvec_done = 0;
-
-	/*pr_info("tier_moving_io, rw:%d, start sector:%lld, device:%d\n", rw,
-					bio->bi_iter.bi_sector,
-					binfo->device);*/
 
 	do {
 		cur_chunk = get_chunksize(bdev, bio);
@@ -116,8 +114,7 @@ static int tier_moving_io(struct tier_device *dev,
 			return res;
 		}
 
-		struct bio *split;
-		sector_t start = 0;
+		start = 0;
 		split = bio_next_split(bio, cur_chunk >> 9, 
 				       GFP_NOIO, fs_bio_set);
 		if (split == bio) {
@@ -545,11 +542,12 @@ static void tiered_dev_access(struct tier_device *dev, struct bio_task *bt)
 	struct blockinfo *binfo;
 	unsigned int offset_in_blk, size_in_blk;
 	int rw = bio_rw(bt->parent_bio);
+        unsigned int done = 0;
+        unsigned int cur_chunk = 0;
+        sector_t start = 0;
+        unsigned int device;
+	struct bio *split;
 
-	/*pr_info("dev_access, rw:%d, start sector:%lld, size:%lld\n", rw,
-					bt->parent_bio->bi_iter.bi_sector,
-					bt->parent_bio->bi_iter.bi_size);*/
-	
 	end_blk = ((bio_end_sector(bio) - 1) << 9) >> BLKBITS;
 
 	while (cur_blk <= end_blk) {
@@ -614,10 +612,10 @@ static void tiered_dev_access(struct tier_device *dev, struct bio_task *bt)
 		}
 
 		/* access allocated block, split bio within it */
-		unsigned int done = 0;
-		unsigned int cur_chunk = 0;
-		sector_t start = 0;
-		unsigned int device = binfo->device - 1;
+		done = 0;
+		cur_chunk = 0;
+		start = 0;
+		device = binfo->device - 1;
 
 		do {
 			cur_chunk = get_chunksize(dev->backdev[device]->bdev,
@@ -635,7 +633,6 @@ static void tiered_dev_access(struct tier_device *dev, struct bio_task *bt)
 				goto bio_submitted_lastbio;
 			}
 
-			struct bio *split;
 			split = bio_next_split(bio, cur_chunk >> 9, 
 					       GFP_NOIO, fs_bio_set);
 			if (split == bio) {

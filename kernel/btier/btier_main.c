@@ -215,7 +215,6 @@ static void mark_device_clean(struct tier_device *dev, int device)
 {
 	struct backing_device *backdev = dev->backdev[device];
 	backdev->devmagic->clean = CLEAN;
-	backdev->devmagic->use_bio = USE_BIO;
 	memset(&backdev->devmagic->binfo_journal_new, 0,
 	       sizeof(struct blockinfo));
 	memset(&backdev->devmagic->binfo_journal_old, 0,
@@ -365,15 +364,11 @@ static int tier_file_read(struct tier_device *dev, unsigned int device,
 	mm_segment_t old_fs = get_fs();
 
 	file = backdev->fds;
-	/* Disable readahead on random IO */
-	/*if (dev->iotype == RANDOM)
-		file->f_ra.ra_pages = 0;*/
 	set_debug_info(dev, VFSREAD);
 	set_fs(get_ds());
 	bw = vfs_read(file, buf, len, &pos);
 	set_fs(old_fs);
 	clear_debug_info(dev, VFSREAD);
-	/*file->f_ra.ra_pages = backdev->ra_pages;*/
 	if (likely(bw == len))
 		return 0;
 	pr_err("Read error at byte offset %llu, length %i.\n",
@@ -1678,13 +1673,11 @@ static int tier_register(struct tier_device *dev)
 	if (0 != ret)
 		goto out;
 
-	//init_waitqueue_head(&dev->tier_event);
 	init_waitqueue_head(&dev->migrate_event);
 	init_waitqueue_head(&dev->aio_event);
 
 	dev->migrate_verbose = 0;
 	dev->stop = 0;
-	//dev->iotype = RANDOM;
 
 	atomic_set(&dev->migrate, 0);
 	atomic_set(&dev->wqlock, 0);
@@ -1777,7 +1770,7 @@ static int tier_register(struct tier_device *dev)
 #ifdef MAX_PERFORMANCE
 	pr_info("MAX_PERFORMANCE IS ENABLED, no internal statistics\n");
 #endif
-	pr_info("write mode = bio to devices and vfs to files\n");
+	pr_info("write mode = bio, vfs is no longer supported\n");
 	return ret;
 
 out_unregister:
@@ -1817,14 +1810,7 @@ static int tier_set_fd(struct tier_device *dev, struct fd_s *fds,
 
 	error = 0;
 
-	/* 
-	 * btier disables readahead when it detects a random io pattern
-	 * it restores the original when the pattern becomes sequential.
-	 */
-	backdev->ra_pages = file->f_ra.ra_pages;
-
 	if (file->f_flags & O_SYNC) {
-		//dev->writethrough = 1;
 		/* Store this persistent on unload */
 		file->f_flags ^= O_SYNC;
 	}

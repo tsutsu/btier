@@ -177,13 +177,10 @@ struct devicemagic {
 	char fullpathname[1025];
 	struct data_policy dtapolicy;
 	char uuid[24];
-	unsigned int writethrough;
-	unsigned int use_bio;
 } __attribute__ ((packed));
 
 struct fd_s {
 	int fd;
-	int use_bio;
 };
 
 #ifdef __KERNEL__
