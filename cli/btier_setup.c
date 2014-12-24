@@ -211,7 +211,8 @@ int tier_set_fd(int fd, char *datafile, int devicenr)
 			return -1;
 		}
 	} else {
-		devsize = (u64) stbuf.st_size;
+		close(ffd);
+                return -1;
 	}
 	devsize = round_to_blksize(devsize);
 	if (devsize < 1048576) {
@@ -507,8 +508,11 @@ int main(int argc, char *argv[])
 				return -1;
 			}
 			close(ffd);
-		} else
-			devsize = (u64) stdta.st_size;
+		} else {
+			fprintf(stderr, "Btier 2.0 no longer supports the use of files as backend devices: %s\n",
+                                mkoptions.backdev[count]->datafile);
+                        return -1;
+                }
 		printf("Device size (raw)              : 0x%llx (%llu)\n",
 		       devsize, devsize);
 		devsize = round_to_blksize(devsize);

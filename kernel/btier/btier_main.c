@@ -19,7 +19,6 @@
 
 #include "btier.h"
 #include "btier_main.h"
-#include "btier_common.h"
 
 #define TRUE 1
 #define FALSE 0
@@ -160,7 +159,7 @@ void btier_unlock(struct tier_device *dev)
 void btier_clear_statistics(struct tier_device *dev)
 {
 	u64 curblock;
-	u64 blocks = dev->size >> BLKBITS;
+	u64 blocks = dev->size >> BLK_SHIFT;
 	struct devicemagic *dmagic;
 	int i;
 	struct blockinfo *binfo = NULL;
@@ -229,7 +228,7 @@ static int mark_offset_as_used(struct tier_device *dev, int device, u64 offset)
 	struct backing_device *backdev = dev->backdev[device];
 	int ret;
 
-	boffset = offset >> BLKBITS;
+	boffset = offset >> BLK_SHIFT;
 	ret = tier_file_write(dev, device, &allocated, 1,
 			      backdev->startofbitlist + boffset);
 	ret =
@@ -251,7 +250,7 @@ void clear_dev_list(struct tier_device *dev, struct blockinfo *binfo)
 	struct backing_device *backdev = dev->backdev[binfo->device - 1];
 
 	offset = binfo->offset - backdev->startofdata;
-	boffset = offset >> BLKBITS;
+	boffset = offset >> BLK_SHIFT;
 
 	tier_file_write(dev, binfo->device - 1,
 			&unallocated, 1, backdev->startofbitlist + boffset);
@@ -299,9 +298,9 @@ int allocate_dev(struct tier_device *dev, u64 blocknr,
 					goto end_exit;
 				} else {
 					backdev->free_offset =
-					    relative_offset >> BLKBITS;
+					    relative_offset >> BLK_SHIFT;
 					backdev->usedoffset = binfo->offset;
-					boffset = relative_offset >> BLKBITS;
+					boffset = relative_offset >> BLK_SHIFT;
 					backdev->bitlist[boffset] = allocated;
 					spin_unlock(&backdev->dev_alloc_lock);
 
@@ -344,9 +343,9 @@ static int tier_file_write(struct tier_device *dev, unsigned int device,
 	set_fs(old_fs);
 	if (likely(bw == len))
 		return 0;
-	pr_err("Write error on device %s at offset %llu, length %li\n",
+	pr_err("Write error on device %s at offset %llu, length %llu\n",
 	       backdev->fds->f_dentry->d_name.name,
-	       (unsigned long long)pos, len);
+	       (unsigned long long)pos, (unsigned long long)len);
 	if (bw >= 0)
 		bw = -EIO;
 	return bw;
@@ -606,6 +605,18 @@ static void recover_journal(struct tier_device *dev, int device)
 	     blocknr);
 }
 
+int sector_divide(u64 size, u32 sector_size)
+{
+        u32 bit_shift = 0;
+        u32 s = sector_size;
+        do {
+            bit_shift++;
+            s >>= 1;
+        } while (s);
+        bit_shift--;
+        return size >> bit_shift;
+}
+
 void discard_on_real_device(struct tier_device *dev,
 			    struct blockinfo *binfo)
 {
@@ -637,12 +648,12 @@ void discard_on_real_device(struct tier_device *dev,
 		sector_size = bdev_logical_block_size(bdev);
 		devsectors = get_capacity(bdev->bd_disk);
 
-		sector = binfo->offset / sector_size;
+                sector = sector_divide( binfo->offset, sector_size);
 		if (sector * sector_size < binfo->offset)
 			sector++;
 
 		endoffset = binfo->offset + BLKSIZE;
-		endsector = endoffset / sector_size;
+		endsector = sector_divide(endoffset, sector_size);
 		nr_sects = endsector - sector;
 		ret =
 		    blkdev_issue_discard(bdev, sector, nr_sects, GFP_NOFS,
@@ -661,7 +672,7 @@ void reset_counters_on_migration(struct tier_device *dev,
 {
 	struct backing_device *backdev = dev->backdev[binfo->device - 1];
 	struct devicemagic *devmagic = backdev->devmagic;
-	u64 devblocks = backdev->devicesize >> BLKBITS;
+	u64 devblocks = backdev->devicesize >> BLK_SHIFT;
 	u64 new_writes, new_reads;
 
 	if (dev->migrate_verbose) {
@@ -677,9 +688,9 @@ void reset_counters_on_migration(struct tier_device *dev,
 	devmagic->total_reads -= binfo->readcount;
 	devmagic->total_writes -= binfo->writecount;
 	new_writes = devmagic->average_writes =
-		     devmagic->total_writes / devblocks;
+		     btier_div(devmagic->total_writes, devblocks);
 	new_reads  = devmagic->average_reads =
-		     devmagic->total_reads / devblocks;
+		     btier_div(devmagic->total_reads, devblocks);
 	spin_unlock(&backdev->magic_lock);
 
 	if (dev->migrate_verbose) {
@@ -785,7 +796,7 @@ static int migrate_up_ifneeded(struct tier_device *dev, struct blockinfo *binfo,
 	hitcount = binfo->readcount + binfo->writecount;
 	dmagic = dev->backdev[binfo->device - 1]->devmagic;
 	avghitcount = dmagic->average_reads + dmagic->average_writes;
-	if (hitcount > avghitcount + (avghitcount / dev->attached_devices)) {
+        if (hitcount > avghitcount + (btier_div(avghitcount, dev->attached_devices))) {
 		if (binfo->device > 1) {
 			dmagic = dev->backdev[binfo->device - 2]->devmagic;
 			avghitcountnexttier =
@@ -796,7 +807,7 @@ static int migrate_up_ifneeded(struct tier_device *dev, struct blockinfo *binfo,
  * the chunks of the higher tier - hysteresis 
  */
 			hysteresis =
-			    avghitcountnexttier / dev->attached_devices;
+			    btier_div(avghitcountnexttier, dev->attached_devices);
 			if (hitcount > avghitcountnexttier - hysteresis)
 				binfo->device--;
 		}
@@ -843,7 +854,7 @@ static int migrate_down_ifneeded(struct tier_device *dev,
 	/* Check if the block has been unused long enough that it may
 	 * be moved to a lower tier
 	 */
-	hysteresis = avghitcount / dev->attached_devices;
+        hysteresis = btier_div(avghitcount, dev->attached_devices);
 	if (curseconds - binfo->lastused > backdev->devmagic->dtapolicy.max_age)
 		binfo->device++;
 	else if (hitcount < avghitcount - hysteresis
@@ -923,15 +934,16 @@ static int load_blocklist(struct tier_device *dev)
 {
 	int alloc_failed = 0;
 	u64 curblock;
-	u64 blocks = dev->size >> BLKBITS;
-	u64 listentries = dev->blocklistsize / sizeof(struct blockinfo);
+        u64 blocks = dev->size >> BLK_SHIFT;
+        u64 listentries = btier_div(dev->blocklistsize, sizeof(struct blockinfo));
 	struct backing_device *backdev = dev->backdev[0];
 	int res = 0;
 	struct physical_blockinfo phy_binfo;
 	struct blockinfo *binfo;
 
+        pr_info("listentries %llu valloc %llu\n", listentries, sizeof(struct blockinfo *) * listentries);
 	backdev->blocklist = vzalloc(sizeof(struct blockinfo *) * listentries);
-	if (!dev->backdev[0]->blocklist)
+	if (!backdev->blocklist)
 		return -ENOMEM;
 
 	for (curblock = 0; curblock < blocks; curblock++) {
@@ -965,7 +977,7 @@ static int load_blocklist(struct tier_device *dev)
 static void free_blocklist(struct tier_device *dev)
 {
 	u64 curblock;
-	u64 blocks = dev->size >> BLKBITS;
+	u64 blocks = dev->size >> BLK_SHIFT;
 	struct backing_device *backdev = dev->backdev[0];
 	if (!backdev->blocklist)
 		return;
@@ -982,7 +994,7 @@ static void free_blocklist(struct tier_device *dev)
 
 static void walk_blocklist(struct tier_device *dev)
 {
-	u64 blocks = dev->size >> BLKBITS;
+	u64 blocks = dev->size >> BLK_SHIFT;
 	u64 curblock;
 	struct blockinfo *binfo;
 	int interrupted = 0;
@@ -1007,11 +1019,11 @@ static void walk_blocklist(struct tier_device *dev)
 		}
 		if (binfo->device != 0) {
 			backdev = dev->backdev[binfo->device - 1];
-			devblocks = backdev->devicesize >> BLKBITS;
-			backdev->devmagic->average_reads =
-			    backdev->devmagic->total_reads / devblocks;
-			backdev->devmagic->average_writes =
-			    backdev->devmagic->total_writes / devblocks;
+			devblocks = backdev->devicesize >> BLK_SHIFT;
+                        backdev->devmagic->average_reads =
+                            btier_div(backdev->devmagic->total_reads, devblocks);
+                        backdev->devmagic->average_writes =
+                            btier_div(backdev->devmagic->total_writes, devblocks);
 			res = migrate_down_ifneeded(dev, binfo, curblock);
 			if (!res)
 				res = migrate_up_ifneeded(dev, binfo, curblock);
@@ -1329,7 +1341,7 @@ static void repair_bitlists(struct tier_device *dev)
 		dev->backdev[i]->free_offset = 0;
 	}
 
-	for (blocknr = 0; blocknr < dev->size >> BLKBITS; blocknr++) {
+	for (blocknr = 0; blocknr < dev->size >> BLK_SHIFT; blocknr++) {
 		binfo = get_blockinfo(dev, blocknr, 0);
 		if (dev->inerror)
 			return;
@@ -1355,7 +1367,7 @@ static void repair_bitlists(struct tier_device *dev)
 			mark_offset_as_used(dev, binfo->device - 1,
 					    relative_offset);
 			dev->backdev[i]->free_offset =
-			    relative_offset >> BLKBITS;
+			    relative_offset >> BLK_SHIFT;
 		}
 	}
 }
@@ -1527,12 +1539,12 @@ end_error:
 static void register_new_device_size(struct tier_device *dev)
 {
 
-	dev->nsectors = dev->size / dev->logical_block_size;
-	dev->size = dev->nsectors * dev->logical_block_size;
-	set_capacity(dev->gd, dev->nsectors * (dev->logical_block_size / 512));
-	revalidate_disk(dev->gd);
-	/* let user-space know about the new size */
-	kobject_uevent(&disk_to_dev(dev->gd)->kobj, KOBJ_CHANGE);
+        dev->nsectors = sector_divide(dev->size, dev->logical_block_size);
+        dev->size = dev->nsectors * dev->logical_block_size;
+        set_capacity(dev->gd, dev->nsectors * (dev->logical_block_size >> 9));
+        revalidate_disk(dev->gd);
+        /* let user-space know about the new size */
+        kobject_uevent(&disk_to_dev(dev->gd)->kobj, KOBJ_CHANGE);
 }
 
 static int alloc_moving_bio(struct tier_device *dev)
@@ -1589,7 +1601,7 @@ static void free_moving_bio(struct tier_device *dev)
 static int alloc_blocklock(struct tier_device *dev)
 {
 	unsigned int size;
-	u64 i, blocks = dev->size >> BLKBITS;
+	u64 i, blocks = dev->size >> BLK_SHIFT;
 
 	size = blocks * sizeof(struct mutex);
 
@@ -1607,7 +1619,7 @@ static int alloc_blocklock(struct tier_device *dev)
 
 static void free_blocklock(struct tier_device *dev)
 {
-	u64 i, blocks = dev->size >> BLKBITS;
+	u64 i, blocks = dev->size >> BLK_SHIFT;
 
 	if (!dev->block_lock)
 		return;
@@ -1629,11 +1641,6 @@ static int tier_register(struct tier_device *dev)
 	struct data_policy *dtapolicy = &magic->dtapolicy;
 	struct request_queue *q;
 
-	dev->devname = reserve_devicename(&devnr);
-	if (!dev->devname)
-		return -1;
-	dev->active = 1;
-	
 	if (0 == dev->logical_block_size)
 		dev->logical_block_size = 512;
 	if (dev->logical_block_size != 512 &&
@@ -1649,8 +1656,17 @@ static int tier_register(struct tier_device *dev)
 	if (dev->logical_block_size == 4096)
 		dev->nsectors = dev->size >> 12;
 	dev->size = dev->nsectors * dev->logical_block_size;
-	pr_info("%s size : %llu\n", dev->devname, dev->size);
+        if (dev->size > BTIER_MAX_SIZE) {
+                kfree(dev);
+                pr_err("BTIER max supported device size of 2PB is exceeded\n");
+                return -ENOMSG;
+        }
+        dev->active = 1;
+        dev->devname = reserve_devicename(&devnr);
+        if (!dev->devname)
+            return -ENOMEM;
 
+	pr_info("%s size : %llu\n", dev->devname, dev->size);
 	spin_lock_init(&dev->dbg_lock);
 	spin_lock_init(&dev->io_seq_lock);
 
@@ -1732,7 +1748,7 @@ static int tier_register(struct tier_device *dev)
 	dev->gd->fops = &tier_ops;
 	dev->gd->private_data = dev;
 	strcpy(dev->gd->disk_name, dev->devname);
-	set_capacity(dev->gd, dev->nsectors * (dev->logical_block_size / 512));
+        set_capacity(dev->gd, dev->nsectors * (dev->logical_block_size >> 9));
 	dev->gd->queue = q;
 
 	migratework = kzalloc(sizeof(*migratework), GFP_KERNEL);
@@ -1797,24 +1813,33 @@ static int tier_set_fd(struct tier_device *dev, struct fd_s *fds,
 {
 	int error = -EBADF;
 	struct file *file = NULL;
+        struct block_device *bdev;
+        char *fullname;
 
 	file = fget(fds->fd);
 	if (!file)
-		goto out;
+		return error;
 
 	if (!(file->f_mode & FMODE_WRITE)) {
-		error = -EPERM;
-		goto out;
+		return -EPERM;
 	}
-	backdev->fds = file;
+        fullname = as_sprintf("/dev/%s", file->f_dentry->d_name.name);
+        if (!fullname)
+                return -ENOMEM;
+        bdev = lookup_bdev(fullname);
+        kfree(fullname);
+        if (IS_ERR(bdev)) {
+                pr_err("btier 2 no longer supports files as backend\n");
+                return -ENOMSG;
+        }
 
+	backdev->fds = file;
 	error = 0;
 
 	if (file->f_flags & O_SYNC) {
 		/* Store this persistent on unload */
 		file->f_flags ^= O_SYNC;
 	}
-out:
 	return error;
 }
 
@@ -2054,7 +2079,7 @@ static int migrate_data_if_needed(struct tier_device *dev, u64 startofblocklist,
 {
 	int res = 0;
 	int cbres = 0;
-	u64 blocks = dev->size >> BLKBITS;
+	u64 blocks = dev->size >> BLK_SHIFT;
 	u64 curblock;
 	struct blockinfo *binfo;
 	struct blockinfo *orgbinfo;

@@ -237,7 +237,7 @@ static ssize_t tier_attr_show_blockinfo_store(struct tier_device *dev,
 {
 	int res;
 	char *cpybuf;
-	u64 maxblocks = dev->size / BLKSIZE;
+        u64 maxblocks = dev->size >> BLK_SHIFT;
 	u64 selected;
 
 	cpybuf = null_term_buf(buf, s);
@@ -297,7 +297,7 @@ static ssize_t tier_attr_migrate_block_store(struct tier_device *dev,
 	int res = 0;
 	size_t m = s;
 	char *cpybuf;
-	u64 maxblocks = dev->size / BLKSIZE;
+	u64 maxblocks = dev->size >> BLK_SHIFT;
 
 	cpybuf = null_term_buf(buf, s);
 	if (!cpybuf)
@@ -532,7 +532,7 @@ static ssize_t tier_attr_show_blockinfo_show(struct tier_device *dev, char *buf)
 	int res = 0;
 	int len;
 	int i = 0;
-	u64 maxblocks = dev->size >> BLKBITS;
+	u64 maxblocks = dev->size >> BLK_SHIFT;
 	u64 blocknr = dev->user_selected_blockinfo;
 
 	for (i = 0; i < MAXPAGESHOW; i++) {
@@ -555,7 +555,7 @@ static ssize_t tier_attr_show_blockinfo_show(struct tier_device *dev, char *buf)
 
 static ssize_t tier_attr_size_in_blocks_show(struct tier_device *dev, char *buf)
 {
-	return sprintf(buf, "%llu\n", dev->size / BLKSIZE);
+	return sprintf(buf, "%llu\n", dev->size >> BLK_SHIFT);
 }
 
 static ssize_t tier_attr_discard_to_devices_show(struct tier_device *dev,
@@ -690,16 +690,16 @@ static ssize_t tier_attr_device_usage_show(struct tier_device *dev, char *buf)
 		allocated = allocated_on_device(dev, i);
 		if (dev->inerror)
 			goto end_error;
-		allocated >>= BLKBITS;
+		allocated >>= BLK_SHIFT;
 		devblocks =
 		    (dev->backdev[i]->endofdata -
-		     dev->backdev[i]->startofdata) >> BLKBITS;
+		     dev->backdev[i]->startofdata) >> BLK_SHIFT;
 		
 		spin_lock(&dev->backdev[i]->magic_lock);
-		dev->backdev[i]->devmagic->average_reads =
-		    dev->backdev[i]->devmagic->total_reads / devblocks;
-		dev->backdev[i]->devmagic->average_writes =
-		    dev->backdev[i]->devmagic->total_writes / devblocks;
+                dev->backdev[i]->devmagic->average_reads =
+                    btier_div(dev->backdev[i]->devmagic->total_reads, devblocks);
+                dev->backdev[i]->devmagic->average_writes =
+                    btier_div(dev->backdev[i]->devmagic->total_writes, devblocks);
 		line =
 		    as_sprintf
 		    ("%7u %20s %15llu %15llu %15u %15u %15llu %15llu\n", i,

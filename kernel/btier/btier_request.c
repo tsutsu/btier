@@ -355,12 +355,12 @@ void tier_discard(struct tier_device *dev, u64 offset, unsigned int size)
 	if (!dev->discard)
 		return;
 	curoff = offset + size;
-	lastblocknr = curoff >> BLKBITS;
-	start = offset >> BLKBITS;
+	lastblocknr = curoff >> BLK_SHIFT;
+	start = offset >> BLK_SHIFT;
 	/* Make sure we don't discard a block while a part of it is still inuse */
-	if ((start << BLKBITS) < offset)
+	if ((start << BLK_SHIFT) < offset)
 		start++;
-	if ((start << BLKBITS) > (offset + size))
+	if ((start << BLK_SHIFT) > (offset + size))
 		return;
 
 	for (blocknr = start; blocknr < lastblocknr; blocknr++) {
@@ -548,12 +548,12 @@ static void tiered_dev_access(struct tier_device *dev, struct bio_task *bt)
         unsigned int device;
 	struct bio *split;
 
-	end_blk = ((bio_end_sector(bio) - 1) << 9) >> BLKBITS;
+	end_blk = ((bio_end_sector(bio) - 1) << 9) >> BLK_SHIFT;
 
 	while (cur_blk <= end_blk) {
 		offset = bio->bi_iter.bi_sector << 9;
-		cur_blk = offset >> BLKBITS;
-		offset_in_blk = offset - (cur_blk << BLKBITS);
+		cur_blk = offset >> BLK_SHIFT;
+		offset_in_blk = offset - (cur_blk << BLK_SHIFT);
 		size_in_blk = (cur_blk == end_blk) ? bio->bi_iter.bi_size :
 						     (BLKSIZE - offset_in_blk);	
 

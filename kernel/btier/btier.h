@@ -37,6 +37,7 @@
 #include <linux/sysfs.h>
 #include <linux/device.h>
 #include <asm/div64.h>
+#include "btier_common.h"
 #else
 typedef unsigned long long u64;
 typedef unsigned long u32;
@@ -53,9 +54,11 @@ typedef unsigned long u32;
 
 */
 
-#define BLKSIZE 1048576		/*Moving smaller blocks then 4M around
-				   will lead to fragmentation */
-#define BLKBITS 20		/*Adjust when changing BLKSIZE */
+#define BTIER_MAX_SIZE 1125899906842624ULL /* 1PB for now, although 4PB or higher is possible */
+#define BLKSIZE 1048576		/*Moving smaller blocks then 1M
+				  will lead to fragmentation */
+#define BLK_SHIFT 20            /*Adjust when changing BLKSIZE */
+
 //#define PAGE_SHIFT 12		/*4k page size */
 #define TIER_NAME_SIZE     64	/* Max lenght of the filenames */
 #define TIER_SET_FD        0xFE00
