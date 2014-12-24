@@ -34,6 +34,7 @@ u64 btier_div(u64 x, u32 y)
        return x / y;
 }
 #endif
+
 u64 calc_blocklist_size(u64 total_device_size, u64 total_bitlist_size)
 {
         u64 blocklistsize;
@@ -50,7 +51,7 @@ u64 calc_blocklist_size(u64 total_device_size, u64 total_bitlist_size)
         round *= sizeof(struct blockinfo);
         if (round < blocklistsize)
                 blocklistsize = round + sizeof(struct blockinfo);
-        round = ( blocklistsize << BLK_SHIFT) >> BLK_SHIFT;
+        round = ( blocklistsize >> BLK_SHIFT) << BLK_SHIFT;
         if (round < blocklistsize)
                 blocklistsize = round + BLKSIZE;
         return blocklistsize;

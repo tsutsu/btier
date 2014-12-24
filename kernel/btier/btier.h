@@ -49,7 +49,7 @@ typedef unsigned long u32;
 #define MAX_PERFORMANCE
 
 */
-#define BTIER_MAX_SIZE 1125899906842624 /* 1PB for now, although 4PB or higher is possible */
+#define BTIER_MAX_SIZE 1125899906842624ULL /* 1PB for now, although 4PB or higher is possible */
 #define BLKSIZE 1048576		        /*Moving smaller blocks then 4M around
 				           will lead to fragmentation */
 #define BLK_SHIFT 20		        /*Adjust when changing BLKSIZE */
