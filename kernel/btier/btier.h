@@ -188,6 +188,7 @@ struct bio_task {
 	atomic_t pending;
 	struct bio *parent_bio;
 	struct tier_device *dev;
+        void *private;
 	int vfs;
         int in_one;
 };

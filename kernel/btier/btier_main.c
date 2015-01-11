@@ -197,9 +197,6 @@ static void aio_reader(struct work_struct *work)
 	    res =
 	        tier_file_read(dev, rwork->device,
 	    		   rwork->data, rwork->size, rwork->offset);
-
-		atomic_dec(&dev->aio_pending);
-		wake_up(&dev->aio_event);
         } else {
             res =
          	tier_read_page(rwork->device, rwork->bvec,
@@ -208,9 +205,11 @@ static void aio_reader(struct work_struct *work)
         }
 	if (res < 0)
 		tiererror(dev, "read failed");
-
+	atomic_dec(&dev->aio_pending);
+	wake_up(&dev->aio_event);
 	kunmap(rwork->bv_page);
-	kfree(rwork);
+        if (bio_task->vfs)
+	    kfree(work);
 }
 
 static int read_aio(struct bio_task *bio_task, int device, char *data, int size,
@@ -227,12 +226,9 @@ static int read_aio(struct bio_task *bio_task, int device, char *data, int size,
 	rwork->size = size;
 	rwork->device = device;
 	rwork->bv_page = bvec->bv_page;
-	rwork->bvec = bvec;
         rwork->bio_task = bio_task;
-
-	if (bio_task->vfs)
-		atomic_inc(&dev->aio_pending);
-
+        bio_task->private = rwork;
+	atomic_inc(&dev->aio_pending);
 	INIT_WORK((struct work_struct *)rwork, aio_reader);
 	if (!queue_work(dev->aio_queue, (struct work_struct *)rwork))
 		ret = -EIO;
@@ -564,6 +560,10 @@ static inline void bio_read_done(struct bio *bio, int err)
 	atomic_dec(&dev->aio_pending);
 	wake_up(&dev->aio_event);
 	bio_put(bio);
+        if (bio_task->private) {
+            kfree(bio_task->private);
+            bio_task->private = NULL;
+        }
 }
 
 static struct bio *prepare_bio_req(struct tier_device *dev, unsigned int device,
@@ -798,20 +798,17 @@ static int get_chunksize(struct block_device *bdev)
 {
         struct request_queue *q = bdev_get_queue(bdev);
         unsigned int chunksize;
-        unsigned int max_hwsectors_kb;
 
-	/* workaround fix to work with mdraid devices, such as mdraid10 */
-	if (q->merge_bvec_fn) {
-		chunksize = PAGE_SIZE;
-	} else {
-		max_hwsectors_kb = queue_max_hw_sectors(q);
-		chunksize = max_hwsectors_kb << 9;
-		if ( chunksize < PAGE_SIZE )
-		    chunksize = PAGE_SIZE;
-		if ( chunksize > BLKSIZE )
-		    chunksize = BLKSIZE;
-	}
-
+        /* workaround fix to work with mdraid devices, such as mdraid10 */
+        if (q->merge_bvec_fn) {
+                chunksize = PAGE_SIZE;
+        } else {
+                chunksize = bio_get_nr_vecs(bdev) << 9;
+                if ( chunksize < PAGE_SIZE )
+                    chunksize = PAGE_SIZE;
+                if ( chunksize > BLKSIZE )
+                    chunksize = BLKSIZE;
+        }
         return chunksize;
 }
 
