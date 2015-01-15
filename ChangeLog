@@ -1,3 +1,5 @@
+        release                 : 1.3.10 2015-01-15
+                                : Fix btier async read corruption
         release                 : 1.3.9 2015-01-11
                                 : Signed-off-by: Mark Ruijter
                                 : Solves a bug that would crash btier

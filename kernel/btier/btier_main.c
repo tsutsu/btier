@@ -14,7 +14,7 @@
 
 #define TRUE 1
 #define FALSE 0
-#define TIER_VERSION "1.3.9"
+#define TIER_VERSION "1.3.10"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Mark Ruijter");
@@ -193,23 +193,15 @@ static void aio_reader(struct work_struct *work)
 	int res;
 
 	set_user_nice(current, -20);
-        if (bio_task->vfs) {
-	    res =
-	        tier_file_read(dev, rwork->device,
-	    		   rwork->data, rwork->size, rwork->offset);
-        } else {
-            res =
-         	tier_read_page(rwork->device, rwork->bvec,
-		rwork->offset,
-		bio_task);
-        }
+	res =
+	    tier_file_read(dev, rwork->device,
+			   rwork->data, rwork->size, rwork->offset);
 	if (res < 0)
 		tiererror(dev, "read failed");
 	atomic_dec(&dev->aio_pending);
 	wake_up(&dev->aio_event);
 	kunmap(rwork->bv_page);
-        if (bio_task->vfs)
-	    kfree(work);
+	kfree(work);
 }
 
 static int read_aio(struct bio_task *bio_task, int device, char *data, int size,
@@ -433,8 +425,9 @@ static int read_tiered(void *data, unsigned int len,
 	int keep = 0;
         struct tier_device *dev = bio_task->dev;
 	struct bio *parent_bio  = bio_task->parent_bio;
+        int random = dev->iotype;
 
-	if (dev->iotype == RANDOM)
+	if (random == RANDOM)
 		dev->stats.rand_reads++;
 	else
 		dev->stats.seq_reads++;
@@ -486,23 +479,13 @@ static int read_tiered(void *data, unsigned int len,
 				if(done)
 					atomic_inc(&bio_task->pending);
 
-                                if (dev->iotype == RANDOM) {
-                                        keep = 1;
-                                        res =
-                                            read_aio(bio_task, device,
-                                                     data + done, size,
-                                                     binfo->offset +
-                                                     block_offset,
-                                                     bvec);
-                                } else {
-				    res =
-				        tier_read_page(device, bvec,
-				    		   binfo->offset + block_offset,
+			        res =
+				     tier_read_page(device, bvec,
+				  		   binfo->offset + block_offset,
 				    		   bio_task);
-                                }
 			} else {
 				bio_task->vfs = 1;
-				if (dev->iotype == RANDOM) {
+				if (random == RANDOM) {
 					keep = 1;
                                         res =
                                             read_aio(bio_task, device,
