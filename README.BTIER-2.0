@@ -12,4 +12,4 @@ Note that using files as backend storage is still possible with btier-2.x
 by converting the files to block devices using the kernel loop driver.
 
 IMPORTANT: BTIER-2.X works / is supported with a very recent kernel!!!
-Use at least 3.13 or higher.
+Use at least 3.14 or higher.
