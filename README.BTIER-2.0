@@ -1,8 +1,15 @@
 BTIER 2.x differs from BTIER 1.X in several ways.
-The most significant change is that BTIER 2.x no longer directly supports the use of files as backend devices.
+The most significant change is that BTIER 2.x no longer directly 
+supports the use of files as backend devices.
 The VFS interface has been removed to allow much increased performance.
 
-BTIER 2.x is able to handle up to a million IOPS, provided that the backend devices can handle that workload.
+BTIER 2.x is able to handle up to a million IOPS, provided that the 
+backend devices can handle that workload.
 BTIER 1.X is able to handle 250K writes and 100K random reads.
 So the performance gain is significant.
- 
+
+Note that using files as backend storage is still possible with btier-2.x
+by converting the files to block devices using the kernel loop driver.
+
+IMPORTANT: BTIER-2.X works / is supported with a very recent kernel!!!
+Use at least 3.13 or higher.
