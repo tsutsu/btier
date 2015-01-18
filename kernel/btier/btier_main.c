@@ -935,7 +935,7 @@ static int load_blocklist(struct tier_device *dev)
 	int alloc_failed = 0;
 	u64 curblock;
         u64 blocks = dev->size >> BLK_SHIFT;
-        u64 listentries = btier_div(dev->blocklistsize, sizeof(struct blockinfo));
+        u64 listentries = btier_div(dev->blocklistsize, sizeof(struct physical_blockinfo));
 	struct backing_device *backdev = dev->backdev[0];
 	int res = 0;
 	struct physical_blockinfo phy_binfo;
