@@ -361,11 +361,21 @@ int get_opts(int argc, char *argv[])
 	int c, ret = 0;
         int has_devices = 0;
 
-	while ((c = getopt(argc, argv, "VBcd:bhcsf:m:z:")) != -1)
+	while ((c = getopt(argc, argv, "cd:hf:z:")) != -1)
 		switch (c) {
 		case 'c':
 			mkoptions.create = 1;
 			break;
+                case 'd':
+                        if (optopt == 'd')
+                                printf
+                                    ("Option -%c requires a device as argument.\n",
+                                     optopt);
+                        else {
+                                mkoptions.device = optarg;
+                                has_devices = 1;
+                        }
+                        break;
 		case 'f':
 			if (optopt == 'f')
 				printf
@@ -376,19 +386,6 @@ int get_opts(int argc, char *argv[])
                                 has_devices = 1;
 			}
 
-			break;
-		case 'd':
-			if (optopt == 'd')
-				printf
-				    ("Option -%c requires a device as argument.\n",
-				     optopt);
-			else {
-				mkoptions.device = optarg;
-				has_devices = 1;
-			}
-			break;
-		case 's':
-			mkoptions.sync = 1;
 			break;
 		case 'z':
 			if (optopt == 'z')
@@ -417,7 +414,7 @@ int get_opts(int argc, char *argv[])
 			usage(argv[0]);
 			break;
 		default:
-			abort();
+                        exit(-1);
 		}
         if (!has_devices) {
             printf("btier_setup requires at least one device to be specified with -f\n");
