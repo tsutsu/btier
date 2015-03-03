@@ -14,7 +14,7 @@
 
 #define TRUE 1
 #define FALSE 0
-#define TIER_VERSION "1.3.10"
+#define TIER_VERSION "1.3.11"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Mark Ruijter");
@@ -2410,15 +2410,6 @@ static int order_devices(struct tier_device *dev)
 			   TIGER_HASH_LEN))
 			memcpy(dev->backdev[i]->devmagic->uuid, uuid,
 			       TIGER_HASH_LEN);
-		if (0 !=
-		    memcmp(dev->backdev[i]->devmagic->uuid, uuid,
-			   TIGER_HASH_LEN)) {
-			tiererror(dev,
-				  "order_devices : incorrect device assembly");
-			res = -EIO;
-			kfree(uuid);
-			goto end_error;
-		}
 		kfree(uuid);
 		dev->backdev[i]->devmagic->clean = DIRTY;
 		write_device_magic(dev, i);
