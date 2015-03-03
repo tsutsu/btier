@@ -1,3 +1,6 @@
+        release                 : 2.0.1 2015-03-03
+                                : Solves a problem that made btier refuse to assemble when the 
+                                : name of the underlying devices had changed                        
         release                 : 2.0.0 2015-01-18
                                 : Fix a crash due to a list overflow
                                 : Initial release of 2.0.0 thanks to : Jianjian Huo
