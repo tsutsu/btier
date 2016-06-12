@@ -2450,8 +2450,7 @@ static void __exit tier_exit(void)
 	list_for_each_entry_safe(tier, next, &device_list, list)
 	    tier_deregister(tier);
 
-	if (misc_deregister(&_tier_misc) < 0)
-		pr_err("misc_deregister failed for tier control device");
+	misc_deregister(&_tier_misc);
 
 	tier_request_exit();
 
