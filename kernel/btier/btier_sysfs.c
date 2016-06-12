@@ -383,7 +383,7 @@ static ssize_t tier_attr_migration_policy_store(struct tier_device *dev,
 	memcpy(devicename, a, p - a);
 	if (0 !=
 	    strcmp(devicename,
-		   dev->backdev[devicenr]->fds->f_dentry->d_name.name)) {
+		   dev->backdev[devicenr]->fds->f_path.dentry->d_name.name)) {
 		kfree(devicename);
 		goto end_error;
 	}
@@ -608,7 +608,7 @@ static ssize_t tier_attr_migration_policy_show(struct tier_device *dev,
 			    as_sprintf
 			    ("%7s %20s %15s %15s\n%7u %20s %15u %15u\n", "tier",
 			     "device", "max_age", "hit_collecttime", i,
-			     dev->backdev[i]->fds->f_dentry->d_name.name,
+			     dev->backdev[i]->fds->f_path.dentry->d_name.name,
 			     dev->backdev[i]->devmagic->dtapolicy.max_age,
 			     dev->backdev[i]->devmagic->dtapolicy.
 			     hit_collecttime);
@@ -616,7 +616,7 @@ static ssize_t tier_attr_migration_policy_show(struct tier_device *dev,
 			msg2 =
 			    as_sprintf("%s%7u %20s %15u %15u\n", msg,
 				       i,
-				       dev->backdev[i]->fds->f_dentry->
+				       dev->backdev[i]->fds->f_path.dentry->
 				       d_name.name,
 				       dev->backdev[i]->devmagic->dtapolicy.
 				       max_age,
@@ -703,7 +703,7 @@ static ssize_t tier_attr_device_usage_show(struct tier_device *dev, char *buf)
 		line =
 		    as_sprintf
 		    ("%7u %20s %15llu %15llu %15u %15u %15llu %15llu\n", i,
-		     dev->backdev[i]->fds->f_dentry->d_name.name, devblocks,
+		     dev->backdev[i]->fds->f_path.dentry->d_name.name, devblocks,
 		     allocated, dev->backdev[i]->devmagic->average_reads,
 		     dev->backdev[i]->devmagic->average_writes,
 		     dev->backdev[i]->devmagic->total_reads,

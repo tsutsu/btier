@@ -44,19 +44,8 @@ unsigned int get_chunksize(struct block_device *bdev,
         chunksize = min(max_hwsectors, max_sectors) << 9;
 
 	bio_for_each_segment(bv, bio, iter) {
-		struct bvec_merge_data bvm = {
-			.bi_bdev        = bdev,
-			.bi_sector      = bio->bi_iter.bi_sector,
-			.bi_size        = ret,
-			.bi_rw          = bio->bi_rw,
-		};
-
 		if (seg == min_t(unsigned, BIO_MAX_PAGES,
 				 queue_max_segments(q)))
-			break;
-
-		if (q->merge_bvec_fn &&
-		    q->merge_bvec_fn(q, &bvm, &bv) < (int) bv.bv_len)
 			break;
 
 		seg++;
@@ -106,7 +95,7 @@ static int tier_moving_io(struct tier_device *dev,
 			cur_chunk = BLKSIZE - done;
 
 		/* if no splits, and whole block is in one bio */
-		if (1 == atomic_read(&bio->bi_remaining) && 
+		if (1 == atomic_read(&bio->__bi_remaining) &&
 		    cur_chunk == BLKSIZE) {
 			set_debug_info(dev, BIO);
 			res = submit_bio_wait(rw, bio);
@@ -451,11 +440,7 @@ static void tier_submit_and_wait_meta(struct bio_meta *bm)
 	wait_for_completion(&bm->event);
 
 	if(bm->discard || bm->flush) {
-		if (bm->ret) {
-			bio_endio(bm->parent_bio, -EIO);
-		} else
-			bio_endio(bm->parent_bio, 0);
-
+		bio_endio(bm->parent_bio);
 		atomic_dec(&dev->aio_pending);
 		wake_up(&dev->aio_event);
 	}
@@ -520,16 +505,12 @@ static inline void tier_dev_allocate(struct tier_device *dev,
 	tier_submit_and_wait_meta(bm);
 }
 
-static void request_endio(struct bio *bio, int err)
+static void request_endio(struct bio *bio)
 {
 	struct bio_task *bt = bio->bi_private;
 	struct tier_device *dev = bt->dev;
 
-	if (err) {
-		bio_endio(bt->parent_bio, -EIO);
-	} else
-		bio_endio(bt->parent_bio, 0);
-
+	bio_endio(bt->parent_bio);
 	atomic_dec(&dev->aio_pending);
 	wake_up(&dev->aio_event);
 	mempool_free(bt, dev->bio_task);
@@ -577,20 +558,16 @@ static void tiered_dev_access(struct tier_device *dev, struct bio_task *bt)
 			bio_advance(bio, size_in_blk);
 
 			/* total splits is 0 and it's now last blk of bio.*/
-			if (1 == atomic_read(&bio->bi_remaining) && 
+			if (1 == atomic_read(&bio->__bi_remaining) &&
 			    cur_blk == end_blk) {
-				if (dev->inerror)
-					bio_endio(bt->parent_bio, -EIO);
-				else
-					bio_endio(bt->parent_bio, 0);
-				
+				bio_endio(bt->parent_bio);
 				goto bio_done;
 			}
 
 			/* total splits > 0 and it's now last blk of bio */
-			if (atomic_read(&bio->bi_remaining) > 1 && 
+			if (atomic_read(&bio->__bi_remaining) > 1 &&
 			    cur_blk == end_blk) {
-				atomic_dec(&bio->bi_remaining);
+				atomic_dec(&bio->__bi_remaining);
 				goto bio_submitted_lastbio;
 			}
 
@@ -606,7 +583,7 @@ static void tiered_dev_access(struct tier_device *dev, struct bio_task *bt)
 				 * couldn't allocate, error.
 				 * need more error handling here. 
 				 */
-				bio_endio(bt->parent_bio, -EIO);
+				bio_endio(bt->parent_bio);
 				goto bio_done;
 			}
 		}
@@ -622,10 +599,10 @@ static void tiered_dev_access(struct tier_device *dev, struct bio_task *bt)
 						  bio);
 			if (cur_chunk > (size_in_blk - done))
 				cur_chunk = size_in_blk - done;
-	
+
 			/* if no splits, and it's now last blk of bio */
-			if (1 == atomic_read(&bio->bi_remaining) && 
-			    cur_blk == end_blk && 
+			if (1 == atomic_read(&bio->__bi_remaining) &&
+			    cur_blk == end_blk &&
 			    cur_chunk == size_in_blk) {
 				start = (binfo->offset + offset_in_blk) >> 9;
 				mutex_unlock(dev->block_lock + cur_blk);
