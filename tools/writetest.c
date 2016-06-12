@@ -4,6 +4,7 @@
  * $Id: writetest.c,v 1.1.1.1 2008/05/21 20:21:25 maru Exp $
  */
 #include <sys/types.h>
+#include <sys/time.h>
 
 #include <errno.h>
 #include <fcntl.h>
