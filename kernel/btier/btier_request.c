@@ -2,79 +2,76 @@
  * Btier bio request handling related funtions, block layer will call btier
  * make_request to handle block read and write requests.
  * Copyright (C) 2014 Mark Ruijter, <mruijter@gmail.com>
- * 
+ *
  * Btier2 changes, Copyright (C) 2014 Jianjian Huo, <samuel.huo@gmail.com>
  * Get_chunksize function is from bcache.
- * 
+ *
  */
 
 #include "btier.h"
 
 struct kmem_cache *bio_task_cache;
 
-static void tier_submit_bio(struct tier_device *dev,
-				unsigned int device,
-				struct bio *bio,
-				sector_t start_sector)
+static void tier_submit_bio(struct tier_device *dev, unsigned int device,
+			    struct bio *bio, sector_t start_sector)
 {
 	struct block_device *bdev = dev->backdev[device]->bdev;
 
 	set_debug_info(dev, BIO);
 
-	bio->bi_iter.bi_sector	= start_sector;
-	bio->bi_bdev		= bdev;
+	bio->bi_iter.bi_sector = start_sector;
+	bio->bi_bdev = bdev;
 
 	generic_make_request(bio);
 	clear_debug_info(dev, BIO);
 }
 
-unsigned int get_chunksize(struct block_device *bdev,
-				  struct bio *bio)
+unsigned int get_chunksize(struct block_device *bdev, struct bio *bio)
 {
-        struct request_queue *q = bdev_get_queue(bdev);
-        unsigned int chunksize;
-        unsigned int max_hwsectors;
-        unsigned int max_sectors;
-	unsigned ret = 0, seg = 0;	
+	struct request_queue *q = bdev_get_queue(bdev);
+	unsigned int chunksize;
+	unsigned int max_hwsectors;
+	unsigned int max_sectors;
+	unsigned ret = 0, seg = 0;
 	struct bio_vec bv;
 	struct bvec_iter iter;
 
-        max_hwsectors = queue_max_hw_sectors(q);
-        max_sectors = queue_max_sectors(q);
-        chunksize = min(max_hwsectors, max_sectors) << 9;
+	max_hwsectors = queue_max_hw_sectors(q);
+	max_sectors = queue_max_sectors(q);
+	chunksize = min(max_hwsectors, max_sectors) << 9;
 
-	bio_for_each_segment(bv, bio, iter) {
-		if (seg == min_t(unsigned, BIO_MAX_PAGES,
-				 queue_max_segments(q)))
+	bio_for_each_segment(bv, bio, iter)
+	{
+		if (seg ==
+		    min_t(unsigned, BIO_MAX_PAGES, queue_max_segments(q)))
 			break;
 
 		seg++;
 		ret += bv.bv_len;
 	}
 
-	chunksize =  min(ret, chunksize);
+	chunksize = min(ret, chunksize);
 	WARN_ON(!chunksize);
 	/* chunksize should be aligned with sectors */
-	WARN_ON(chunksize&((1 << 9) - 1));
+	WARN_ON(chunksize & ((1 << 9) - 1));
 
 	ret = max_t(int, chunksize, bio_iovec(bio).bv_len);
 
-        if (chunksize > BLKSIZE)
-            chunksize = BLKSIZE;
+	if (chunksize > BLKSIZE)
+		chunksize = BLKSIZE;
 
-        return chunksize;
+	return chunksize;
 }
 
-static int tier_moving_io(struct tier_device *dev,
-			  struct blockinfo *binfo,
+static int tier_moving_io(struct tier_device *dev, struct blockinfo *binfo,
 			  int rw)
 {
 	struct block_device *bdev = dev->backdev[binfo->device - 1]->bdev;
-	struct bio *bio = dev->moving_bio; 
+	struct bio *bio = dev->moving_bio;
 	unsigned int done = 0;
 	unsigned int cur_chunk = 0;
 	struct bio *split;
-        sector_t start;
+	sector_t start;
 	int res = 0;
 
 	if (!bdev)
@@ -87,7 +84,7 @@ static int tier_moving_io(struct tier_device *dev,
 	bio->bi_iter.bi_sector = binfo->offset >> 9;
 	bio->bi_iter.bi_size = BLKSIZE;
 	bio->bi_iter.bi_idx = 0;
-        bio->bi_iter.bi_bvec_done = 0;
+	bio->bi_iter.bi_bvec_done = 0;
 
 	do {
 		cur_chunk = get_chunksize(bdev, bio);
@@ -104,8 +101,8 @@ static int tier_moving_io(struct tier_device *dev,
 		}
 
 		start = 0;
-		split = bio_next_split(bio, cur_chunk >> 9, 
-				       GFP_NOIO, fs_bio_set);
+		split =
+		    bio_next_split(bio, cur_chunk >> 9, GFP_NOIO, fs_bio_set);
 		if (split == bio) {
 			set_debug_info(dev, BIO);
 			res = submit_bio_wait(rw, bio);
@@ -124,8 +121,7 @@ static int tier_moving_io(struct tier_device *dev,
 	return -EPERM;
 }
 
-int tier_moving_block(struct tier_device *dev,
-		      struct blockinfo *olddevice,
+int tier_moving_block(struct tier_device *dev, struct blockinfo *olddevice,
 		      struct blockinfo *newdevice)
 {
 	int res;
@@ -203,7 +199,8 @@ static void bio_fill_zero(struct bio *bio, unsigned int size)
 	struct bvec_iter iter;
 	unsigned int done = 0;
 
-	bio_for_each_segment(bv, bio, iter) {
+	bio_for_each_segment(bv, bio, iter)
+	{
 		char *data = bvec_kmap_irq(&bv, &flags);
 		memset(data, 0, bv.bv_len);
 		flush_dcache_page(bv.bv_page);
@@ -221,18 +218,19 @@ static int binfo_sanity(struct tier_device *dev, struct blockinfo *binfo)
 	struct backing_device *backdev = dev->backdev[binfo->device - 1];
 
 	if (binfo->device > dev->attached_devices) {
-		pr_info
-		    ("Metadata corruption detected : device %u, dev->attached_devices %u\n",
-		     binfo->device, dev->attached_devices);
-		tiererror(dev,
-			  "get_blockinfo : binfo->device > dev->attached_devices");
+		pr_info("Metadata corruption detected : device %u, "
+			"dev->attached_devices %u\n",
+			binfo->device, dev->attached_devices);
+		tiererror(
+		    dev,
+		    "get_blockinfo : binfo->device > dev->attached_devices");
 		return 0;
 	}
 
 	if (binfo->offset > backdev->devicesize) {
-		pr_info
-		    ("Metadata corruption detected : device %u, offset %llu, devsize %llu\n",
-		     binfo->device, binfo->offset, backdev->devicesize);
+		pr_info("Metadata corruption detected : device %u, offset "
+			"%llu, devsize %llu\n",
+			binfo->device, binfo->offset, backdev->devicesize);
 		tiererror(dev, "get_blockinfo : offset exceeds device size");
 		return 0;
 	}
@@ -242,7 +240,7 @@ static int binfo_sanity(struct tier_device *dev, struct blockinfo *binfo)
 /*
  * Read the metadata of the blocknr specified.
  * When a blocknr is not yet allocated binfo->device is 0; otherwhise > 0.
- * Metadata statistics are updated when called with 
+ * Metadata statistics are updated when called with
  * TIERREAD or TIERWRITE (updatemeta != 0 )
  */
 struct blockinfo *get_blockinfo(struct tier_device *dev, u64 blocknr,
@@ -263,7 +261,7 @@ struct blockinfo *get_blockinfo(struct tier_device *dev, u64 blocknr,
 			goto err_ret;
 		}
 		backdev = dev->backdev[binfo->device - 1];
-		
+
 		/* update accesstime and hitcount */
 		if (updatemeta > 0) {
 			if (updatemeta == TIERREAD) {
@@ -285,14 +283,13 @@ struct blockinfo *get_blockinfo(struct tier_device *dev, u64 blocknr,
 			binfo->lastused = get_seconds();
 		}
 	}
-	
+
 err_ret:
 	return binfo;
 }
 
 static int allocate_block(struct tier_device *dev, u64 blocknr,
-			  struct blockinfo *binfo,
-			  struct bio_task *bt)
+			  struct blockinfo *binfo, struct bio_task *bt)
 {
 	int device = 0;
 	int count = 0;
@@ -301,8 +298,7 @@ static int allocate_block(struct tier_device *dev, u64 blocknr,
 	/* Sequential writes will go to SAS or SATA */
 	if (bt->iotype == SEQUENTIAL && dev->attached_devices > 1) {
 		spin_lock(&backdev->magic_lock);
-		device =
-		    backdev->devmagic->dtapolicy.sequential_landing;
+		device = backdev->devmagic->dtapolicy.sequential_landing;
 		spin_unlock(&backdev->magic_lock);
 	}
 
@@ -317,8 +313,8 @@ static int allocate_block(struct tier_device *dev, u64 blocknr,
 		device++;
 		count++;
 		if (count >= dev->attached_devices) {
-			pr_err
-			    ("no free space found, this should never happen!!\n");
+			pr_err("no free space found, this should never "
+			       "happen!!\n");
 			return -ENOSPC;
 		}
 		if (device >= dev->attached_devices)
@@ -338,15 +334,15 @@ void tier_discard(struct tier_device *dev, u64 offset, unsigned int size)
 	u64 curoff;
 	u64 start;
 
-	pr_debug("Got a discard request offset %llu len %u\n",
-		 offset, size);
+	pr_debug("Got a discard request offset %llu len %u\n", offset, size);
 
 	if (!dev->discard)
 		return;
 	curoff = offset + size;
 	lastblocknr = curoff >> BLK_SHIFT;
 	start = offset >> BLK_SHIFT;
-	/* Make sure we don't discard a block while a part of it is still inuse */
+	/* Make sure we don't discard a block while a part of it is still inuse
+	 */
 	if ((start << BLK_SHIFT) < offset)
 		start++;
 	if ((start << BLK_SHIFT) > (offset + size))
@@ -360,9 +356,9 @@ void tier_discard(struct tier_device *dev, u64 offset, unsigned int size)
 			break;
 		}
 		if (binfo->device != 0) {
-			pr_debug
-			    ("really discard blocknr %llu at offset %llu size %u\n",
-			     blocknr, offset, size);
+			pr_debug("really discard blocknr %llu at offset %llu "
+				 "size %u\n",
+				 blocknr, offset, size);
 			clear_dev_list(dev, binfo);
 			reset_counters_on_migration(dev, binfo);
 			discard_on_real_device(dev, binfo);
@@ -376,7 +372,7 @@ void tier_discard(struct tier_device *dev, u64 offset, unsigned int size)
 	}
 }
 
-/* 
+/*
  * Btier meta data operations, such as FLUSH/FUA, discard, and read/write
  * blocklist and bit list on backing devices.
  * Pending make_request will be waiting for those to be finished.
@@ -392,7 +388,7 @@ static void tier_meta_work(struct work_struct *work)
 
 	/*
 	 * if bm->flush is true, flush possible dirty meta data if has.
-	 * Currently, we don't have, other than r/w counts in block info. 
+	 * Currently, we don't have, other than r/w counts in block info.
 	 */
 	if (bm->flush) {
 		/* send this zero size bio to every backing device*/
@@ -409,7 +405,7 @@ static void tier_meta_work(struct work_struct *work)
 
 	if (bm->discard) {
 		set_debug_info(dev, DISCARD);
-		tier_discard(dev, parent_bio->bi_iter.bi_sector << 9, 
+		tier_discard(dev, parent_bio->bi_iter.bi_sector << 9,
 			     parent_bio->bi_iter.bi_size);
 		clear_debug_info(dev, DISCARD);
 	}
@@ -439,16 +435,16 @@ static void tier_submit_and_wait_meta(struct bio_meta *bm)
 	/* wait until all those bio meta works have been finished*/
 	wait_for_completion(&bm->event);
 
-	if(bm->discard || bm->flush) {
+	if (bm->discard || bm->flush) {
 		bio_endio(bm->parent_bio);
 		atomic_dec(&dev->aio_pending);
 		wake_up(&dev->aio_event);
 	}
 
-	if(bm->allocate && bm->ret) {
+	if (bm->allocate && bm->ret) {
 		/*
 		 * couldn't allocate, error.
-		 * need more error handling here. 
+		 * need more error handling here.
 		 */
 		bm->binfo->device = 0;
 	}
@@ -465,9 +461,9 @@ static inline void tier_dev_nodata(struct tier_device *dev,
 	memset(bm, 0, sizeof(*bm));
 
 	bm->dev = dev;
-	bm->flush = (parent_bio->bi_rw & (REQ_FLUSH|REQ_FUA)) != 0;
+	bm->flush = (parent_bio->bi_rw & (REQ_FLUSH | REQ_FUA)) != 0;
 	bm->parent_bio = parent_bio;
-	
+
 	tier_submit_and_wait_meta(bm);
 }
 
@@ -486,10 +482,9 @@ static inline void tier_dev_discard(struct tier_device *dev,
 	tier_submit_and_wait_meta(bm);
 }
 
-static inline void tier_dev_allocate(struct tier_device *dev,
-				    u64 blocknr,
-				    struct blockinfo *binfo,
-				    struct bio_task *bt)
+static inline void tier_dev_allocate(struct tier_device *dev, u64 blocknr,
+				     struct blockinfo *binfo,
+				     struct bio_task *bt)
 {
 	struct bio_meta *bm;
 
@@ -523,10 +518,10 @@ static void tiered_dev_access(struct tier_device *dev, struct bio_task *bt)
 	struct blockinfo *binfo;
 	unsigned int offset_in_blk, size_in_blk;
 	int rw = bio_rw(bt->parent_bio);
-        unsigned int done = 0;
-        unsigned int cur_chunk = 0;
-        sector_t start = 0;
-        unsigned int device;
+	unsigned int done = 0;
+	unsigned int cur_chunk = 0;
+	sector_t start = 0;
+	unsigned int device;
 	struct bio *split;
 
 	end_blk = ((bio_end_sector(bio) - 1) << 9) >> BLK_SHIFT;
@@ -535,8 +530,8 @@ static void tiered_dev_access(struct tier_device *dev, struct bio_task *bt)
 		offset = bio->bi_iter.bi_sector << 9;
 		cur_blk = offset >> BLK_SHIFT;
 		offset_in_blk = offset - (cur_blk << BLK_SHIFT);
-		size_in_blk = (cur_blk == end_blk) ? bio->bi_iter.bi_size :
-						     (BLKSIZE - offset_in_blk);	
+		size_in_blk = (cur_blk == end_blk) ? bio->bi_iter.bi_size
+						   : (BLKSIZE - offset_in_blk);
 
 		determine_iotype(bt, cur_blk);
 		increase_iostats(bt);
@@ -578,10 +573,10 @@ static void tiered_dev_access(struct tier_device *dev, struct bio_task *bt)
 		if (rw && 0 == binfo->device) {
 			tier_dev_allocate(dev, cur_blk, binfo, bt);
 
-			if(0 == binfo->device) {
+			if (0 == binfo->device) {
 				/*
 				 * couldn't allocate, error.
-				 * need more error handling here. 
+				 * need more error handling here.
 				 */
 				bio_endio(bt->parent_bio);
 				goto bio_done;
@@ -595,34 +590,33 @@ static void tiered_dev_access(struct tier_device *dev, struct bio_task *bt)
 		device = binfo->device - 1;
 
 		do {
-			cur_chunk = get_chunksize(dev->backdev[device]->bdev,
-						  bio);
+			cur_chunk =
+			    get_chunksize(dev->backdev[device]->bdev, bio);
 			if (cur_chunk > (size_in_blk - done))
 				cur_chunk = size_in_blk - done;
 
 			/* if no splits, and it's now last blk of bio */
 			if (1 == atomic_read(&bio->__bi_remaining) &&
-			    cur_blk == end_blk &&
-			    cur_chunk == size_in_blk) {
+			    cur_blk == end_blk && cur_chunk == size_in_blk) {
 				start = (binfo->offset + offset_in_blk) >> 9;
 				mutex_unlock(dev->block_lock + cur_blk);
 				tier_submit_bio(dev, device, bio, start);
 				goto bio_submitted_lastbio;
 			}
 
-			split = bio_next_split(bio, cur_chunk >> 9, 
-					       GFP_NOIO, fs_bio_set);
+			split = bio_next_split(bio, cur_chunk >> 9, GFP_NOIO,
+					       fs_bio_set);
 			if (split == bio) {
 				BUG_ON(cur_blk != end_blk);
-				start = (binfo->offset + offset_in_blk + done)
-					>> 9;
+				start =
+				    (binfo->offset + offset_in_blk + done) >> 9;
 				mutex_unlock(dev->block_lock + cur_blk);
 				tier_submit_bio(dev, device, bio, start);
 				goto bio_submitted_lastbio;
 			} else {
 				bio_chain(split, bio);
-				start = (binfo->offset + offset_in_blk + done)
-					>> 9;
+				start =
+				    (binfo->offset + offset_in_blk + done) >> 9;
 				tier_submit_bio(dev, device, split, start);
 			}
 
@@ -659,7 +653,7 @@ static inline struct bio_task *task_alloc(struct tier_device *dev,
 	bio = &bt->bio;
 	bio_init(bio);
 	__bio_clone_fast(bio, parent_bio);
-	bio->bi_end_io  = request_endio;
+	bio->bi_end_io = request_endio;
 	bio->bi_private = bt;
 
 	return bt;
@@ -686,7 +680,7 @@ blk_qc_t tier_make_request(struct request_queue *q, struct bio *parent_bio)
 
 	cpu = part_stat_lock();
 	part_stat_inc(cpu, &dev->gd->part0, ios[rw]);
-	part_stat_add(cpu, &dev->gd->part0, sectors[rw], 
+	part_stat_add(cpu, &dev->gd->part0, sectors[rw],
 		      bio_sectors(parent_bio));
 	part_stat_unlock();
 

@@ -8,36 +8,43 @@
 
 #include "btier.h"
 
-#define sprintf_one_var(buf, var)					\
-	sprintf(buf,							\
-		__builtin_types_compatible_p(typeof(var), int)		\
-		     ? "%i\n" :						\
-		__builtin_types_compatible_p(typeof(var), unsigned)	\
-		     ? "%u\n" :						\
-		__builtin_types_compatible_p(typeof(var), long)		\
-		     ? "%li\n" :					\
-		__builtin_types_compatible_p(typeof(var), unsigned long)\
-		     ? "%lu\n" :					\
-		__builtin_types_compatible_p(typeof(var), int64_t)	\
-		     ? "%lli\n" :					\
-		__builtin_types_compatible_p(typeof(var), uint64_t)	\
-		     ? "%llu\n" :					\
-		__builtin_types_compatible_p(typeof(var), const char *)	\
-		     ? "%s\n" : "%i\n", var)
-
+#define sprintf_one_var(buf, var)                                              \
+	sprintf(                                                               \
+	    buf,                                                               \
+	    __builtin_types_compatible_p(typeof(var), int)                     \
+		? "%i\n"                                                       \
+		: __builtin_types_compatible_p(typeof(var), unsigned)          \
+		      ? "%u\n"                                                 \
+		      : __builtin_types_compatible_p(typeof(var), long)        \
+			    ? "%li\n"                                          \
+			    : __builtin_types_compatible_p(typeof(var),        \
+							   unsigned long)      \
+				  ? "%lu\n"                                    \
+				  : __builtin_types_compatible_p(typeof(var),  \
+								 int64_t)      \
+					? "%lli\n"                             \
+					: __builtin_types_compatible_p(        \
+					      typeof(var), uint64_t)           \
+					      ? "%llu\n"                       \
+					      : __builtin_types_compatible_p(  \
+						    typeof(var), const char *) \
+						    ? "%s\n"                   \
+						    : "%i\n",                  \
+	    var)
 
 extern struct list_head device_list;
 extern struct mutex tier_devices_mutex;
 
 /* tier sysfs attributes */
 ssize_t tier_attr_show(struct device *dev, char *page,
-		       ssize_t(*callback) (struct tier_device *, char *))
+		       ssize_t (*callback)(struct tier_device *, char *))
 {
 	struct tier_device *l, *lo = NULL;
 
 	mutex_lock(&tier_devices_mutex);
-	list_for_each_entry(l, &device_list, list)
-	    if (disk_to_dev(l->gd) == dev) {
+	list_for_each_entry(l, &device_list,
+			    list) if (disk_to_dev(l->gd) == dev)
+	{
 		lo = l;
 		break;
 	}
@@ -46,15 +53,16 @@ ssize_t tier_attr_show(struct device *dev, char *page,
 	return lo ? callback(lo, page) : -EIO;
 }
 
-ssize_t tier_attr_store(struct device * dev, const char *page, size_t s,
-			ssize_t(*callback) (struct tier_device *,
-					    const char *, size_t))
+ssize_t tier_attr_store(struct device *dev, const char *page, size_t s,
+			ssize_t (*callback)(struct tier_device *, const char *,
+					    size_t))
 {
 	struct tier_device *l, *lo = NULL;
 
 	mutex_lock(&tier_devices_mutex);
-	list_for_each_entry(l, &device_list, list)
-	    if (disk_to_dev(l->gd) == dev) {
+	list_for_each_entry(l, &device_list,
+			    list) if (disk_to_dev(l->gd) == dev)
+	{
 		lo = l;
 		break;
 	}
@@ -82,15 +90,15 @@ static char *as_strarrcat(const char **strarr, ssize_t count)
 	return retstr;
 }
 
-#define TIER_ATTR_RO(_name) \
-static ssize_t tier_attr_##_name##_show(struct tier_device *, char *);  \
-static ssize_t tier_attr_do_show_##_name(struct device *d,              \
-                                struct device_attribute *attr, char *b) \
-{                                                                       \
-        return tier_attr_show(d, b, tier_attr_##_name##_show);          \
-}                                                                       \
-static struct device_attribute tier_attr_##_name =                      \
-        __ATTR(_name, S_IRUGO, tier_attr_do_show_##_name, NULL);
+#define TIER_ATTR_RO(_name)                                                    \
+	static ssize_t tier_attr_##_name##_show(struct tier_device *, char *); \
+	static ssize_t tier_attr_do_show_##_name(                              \
+	    struct device *d, struct device_attribute *attr, char *b)          \
+	{                                                                      \
+		return tier_attr_show(d, b, tier_attr_##_name##_show);         \
+	}                                                                      \
+	static struct device_attribute tier_attr_##_name =                     \
+	    __ATTR(_name, S_IRUGO, tier_attr_do_show_##_name, NULL);
 
 static ssize_t tier_attr_attacheddevices_show(struct tier_device *dev,
 					      char *buf)
@@ -98,30 +106,35 @@ static ssize_t tier_attr_attacheddevices_show(struct tier_device *dev,
 	return sprintf(buf, "%u\n", dev->attached_devices);
 }
 
-#define TIER_ATTR_WO(_name) \
-static ssize_t tier_attr_##_name##_store(struct tier_device *, const char *, size_t);  \
-static ssize_t tier_attr_do_store_##_name(struct device *d,                      \
-                                struct device_attribute *attr, const char *b, size_t s)\
-{                                                                                \
-        return tier_attr_store(d, b, s, tier_attr_##_name##_store);              \
-}                                                                                \
-static struct device_attribute tier_attr_##_name =                               \
-        __ATTR(_name, S_IWUSR, NULL, tier_attr_do_store_##_name);
+#define TIER_ATTR_WO(_name)                                                    \
+	static ssize_t tier_attr_##_name##_store(struct tier_device *,         \
+						 const char *, size_t);        \
+	static ssize_t tier_attr_do_store_##_name(                             \
+	    struct device *d, struct device_attribute *attr, const char *b,    \
+	    size_t s)                                                          \
+	{                                                                      \
+		return tier_attr_store(d, b, s, tier_attr_##_name##_store);    \
+	}                                                                      \
+	static struct device_attribute tier_attr_##_name =                     \
+	    __ATTR(_name, S_IWUSR, NULL, tier_attr_do_store_##_name);
 
-#define TIER_ATTR_RW(_name) \
-static ssize_t tier_attr_##_name##_store(struct tier_device *, const char *, size_t);  \
-static ssize_t tier_attr_do_store_##_name(struct device *d,                      \
-                                struct device_attribute *attr, const char *b, size_t s)\
-{                                                                                \
-        return tier_attr_store(d, b, s, tier_attr_##_name##_store);              \
-}                                                                                \
-static ssize_t tier_attr_do_show_##_name(struct device *d,              \
-                                struct device_attribute *attr, char *b) \
-{                                                                       \
-        return tier_attr_show(d, b, tier_attr_##_name##_show);          \
-}                                                                       \
-static struct device_attribute tier_attr_##_name =                               \
-        __ATTR(_name, (S_IRWXU ^ S_IXUSR) | S_IRGRP| S_IROTH,  tier_attr_do_show_##_name, tier_attr_do_store_##_name);
+#define TIER_ATTR_RW(_name)                                                    \
+	static ssize_t tier_attr_##_name##_store(struct tier_device *,         \
+						 const char *, size_t);        \
+	static ssize_t tier_attr_do_store_##_name(                             \
+	    struct device *d, struct device_attribute *attr, const char *b,    \
+	    size_t s)                                                          \
+	{                                                                      \
+		return tier_attr_store(d, b, s, tier_attr_##_name##_store);    \
+	}                                                                      \
+	static ssize_t tier_attr_do_show_##_name(                              \
+	    struct device *d, struct device_attribute *attr, char *b)          \
+	{                                                                      \
+		return tier_attr_show(d, b, tier_attr_##_name##_show);         \
+	}                                                                      \
+	static struct device_attribute tier_attr_##_name =                     \
+	    __ATTR(_name, (S_IRWXU ^ S_IXUSR) | S_IRGRP | S_IROTH,             \
+		   tier_attr_do_show_##_name, tier_attr_do_store_##_name);
 
 static ssize_t tier_attr_migration_enable_store(struct tier_device *dev,
 						const char *buf, size_t s)
@@ -140,8 +153,8 @@ static ssize_t tier_attr_migration_enable_store(struct tier_device *dev,
 			pr_info("migration is enabled for %s\n", dev->devname);
 		}
 	} else {
-		if (!dtapolicy->migration_disabled
-		    && 0 == atomic_read(&dev->migrate)) {
+		if (!dtapolicy->migration_disabled &&
+		    0 == atomic_read(&dev->migrate)) {
 			dtapolicy->migration_disabled = 1;
 			if (timer_pending(&dev->migrate_timer))
 				del_timer_sync(&dev->migrate_timer);
@@ -166,7 +179,7 @@ static ssize_t tier_attr_discard_to_devices_store(struct tier_device *dev,
 {
 	if ('0' != buf[0] && '1' != buf[0])
 		return s;
-	
+
 	if ('0' == buf[0]) {
 		if (dev->discard_to_devices) {
 			dev->discard_to_devices = 0;
@@ -182,8 +195,8 @@ static ssize_t tier_attr_discard_to_devices_store(struct tier_device *dev,
 	return s;
 }
 
-static ssize_t tier_attr_discard_store(struct tier_device *dev,
-				       const char *buf, size_t s)
+static ssize_t tier_attr_discard_store(struct tier_device *dev, const char *buf,
+				       size_t s)
 {
 	if ('0' != buf[0] && '1' != buf[0])
 		return s;
@@ -206,8 +219,8 @@ static ssize_t tier_attr_discard_store(struct tier_device *dev,
 	return s;
 }
 
-static ssize_t tier_attr_resize_store(struct tier_device *dev,
-				      const char *buf, size_t s)
+static ssize_t tier_attr_resize_store(struct tier_device *dev, const char *buf,
+				      size_t s)
 {
 	if ('1' != buf[0])
 		return s;
@@ -237,7 +250,7 @@ static ssize_t tier_attr_show_blockinfo_store(struct tier_device *dev,
 {
 	int res;
 	char *cpybuf;
-        u64 maxblocks = dev->size >> BLK_SHIFT;
+	u64 maxblocks = dev->size >> BLK_SHIFT;
 	u64 selected;
 
 	cpybuf = null_term_buf(buf, s);
@@ -440,9 +453,9 @@ static ssize_t tier_attr_migration_interval_store(struct tier_device *dev,
 		dtapolicy->migration_interval = interval;
 		if (!dtapolicy->migration_disabled)
 			mod_timer(&dev->migrate_timer,
-				  jiffies +
-				  msecs_to_jiffies(dtapolicy->migration_interval
-						   * 1000));
+				  jiffies + msecs_to_jiffies(
+						dtapolicy->migration_interval *
+						1000));
 		up_write(&dev->qlock);
 		dtapolicy->migration_disabled = curstate;
 	} else
@@ -479,9 +492,8 @@ static ssize_t tier_attr_internals_show(struct tier_device *dev, char *buf)
 	else
 		iotype =
 		    as_sprintf("iotype (normal or migration) : no activity\n");
-	iopending =
-	    as_sprintf("async random ios pending     : %i\n",
-		       atomic_read(&dev->aio_pending));
+	iopending = as_sprintf("async random ios pending     : %i\n",
+			       atomic_read(&dev->aio_pending));
 	if (rwsem_is_locked(&dev->qlock))
 		qlock = as_sprintf("main mutex                   : locked\n");
 	else
@@ -499,9 +511,8 @@ static ssize_t tier_attr_internals_show(struct tier_device *dev, char *buf)
 	debug_state =
 	    as_sprintf("debug state                  : %i\n", dev->debug_state);
 	spin_unlock(&dev->dbg_lock);
-	res =
-	    sprintf(buf, "%s%s%s%s%s%s", iotype, iopending, qlock, aiowq,
-		    discard, debug_state);
+	res = sprintf(buf, "%s%s%s%s%s%s", iotype, iopending, qlock, aiowq,
+		      discard, debug_state);
 #else
 	res = sprintf(buf, "%s%s%s%s", iotype, iopending, qlock, aiowq);
 #endif
@@ -540,9 +551,8 @@ static ssize_t tier_attr_show_blockinfo_show(struct tier_device *dev, char *buf)
 		if (!binfo)
 			return res;
 		len = sprintf(buf + res, "%i,%llu,%lu,%u,%u\n",
-			      binfo->device - 1, binfo->offset,
-			      binfo->lastused, binfo->readcount,
-			      binfo->writecount);
+			      binfo->device - 1, binfo->offset, binfo->lastused,
+			      binfo->readcount, binfo->writecount);
 		res += len;
 		if (!dev->user_selected_ispaged)
 			break;
@@ -604,24 +614,20 @@ static ssize_t tier_attr_migration_policy_show(struct tier_device *dev,
 
 	for (i = 0; i < dev->attached_devices; i++) {
 		if (!msg) {
-			msg2 =
-			    as_sprintf
-			    ("%7s %20s %15s %15s\n%7u %20s %15u %15u\n", "tier",
-			     "device", "max_age", "hit_collecttime", i,
-			     dev->backdev[i]->fds->f_path.dentry->d_name.name,
-			     dev->backdev[i]->devmagic->dtapolicy.max_age,
-			     dev->backdev[i]->devmagic->dtapolicy.
-			     hit_collecttime);
+			msg2 = as_sprintf(
+			    "%7s %20s %15s %15s\n%7u %20s %15u %15u\n", "tier",
+			    "device", "max_age", "hit_collecttime", i,
+			    dev->backdev[i]->fds->f_path.dentry->d_name.name,
+			    dev->backdev[i]->devmagic->dtapolicy.max_age,
+			    dev->backdev[i]
+				->devmagic->dtapolicy.hit_collecttime);
 		} else {
-			msg2 =
-			    as_sprintf("%s%7u %20s %15u %15u\n", msg,
-				       i,
-				       dev->backdev[i]->fds->f_path.dentry->
-				       d_name.name,
-				       dev->backdev[i]->devmagic->dtapolicy.
-				       max_age,
-				       dev->backdev[i]->devmagic->dtapolicy.
-				       hit_collecttime);
+			msg2 = as_sprintf(
+			    "%s%7u %20s %15u %15u\n", msg, i,
+			    dev->backdev[i]->fds->f_path.dentry->d_name.name,
+			    dev->backdev[i]->devmagic->dtapolicy.max_age,
+			    dev->backdev[i]
+				->devmagic->dtapolicy.hit_collecttime);
 		}
 		kfree(msg);
 		msg = msg2;
@@ -643,9 +649,11 @@ static ssize_t tier_attr_numwrites_show(struct tier_device *dev, char *buf)
 	int len;
 
 	len = sprintf(buf, "sequential ");
-	len += sprintf_one_var(buf+len, atomic64_read(&dev->stats.seq_writes));
-	len += sprintf(buf+len, ", Random ");
-	len += sprintf_one_var(buf+len, atomic64_read(&dev->stats.rand_writes));
+	len +=
+	    sprintf_one_var(buf + len, atomic64_read(&dev->stats.seq_writes));
+	len += sprintf(buf + len, ", Random ");
+	len +=
+	    sprintf_one_var(buf + len, atomic64_read(&dev->stats.rand_writes));
 
 	return len;
 }
@@ -655,9 +663,10 @@ static ssize_t tier_attr_numreads_show(struct tier_device *dev, char *buf)
 	int len;
 
 	len = sprintf(buf, "sequential ");
-	len += sprintf_one_var(buf+len, atomic64_read(&dev->stats.seq_reads));
-	len += sprintf(buf+len, ", Random ");
-	len += sprintf_one_var(buf+len, atomic64_read(&dev->stats.rand_reads));
+	len += sprintf_one_var(buf + len, atomic64_read(&dev->stats.seq_reads));
+	len += sprintf(buf + len, ", Random ");
+	len +=
+	    sprintf_one_var(buf + len, atomic64_read(&dev->stats.rand_reads));
 
 	return len;
 }
@@ -677,10 +686,9 @@ static ssize_t tier_attr_device_usage_show(struct tier_device *dev, char *buf)
 	if (!lines)
 		return -ENOMEM;
 
-	line =
-	    as_sprintf("%7s %20s %15s %15s %15s %15s %15s %15s\n", "TIER",
-		       "DEVICE", "SIZE MB", "ALLOCATED MB", "AVERAGE READS",
-		       "AVERAGE WRITES", "TOTAL_READS", "TOTAL_WRITES");
+	line = as_sprintf("%7s %20s %15s %15s %15s %15s %15s %15s\n", "TIER",
+			  "DEVICE", "SIZE MB", "ALLOCATED MB", "AVERAGE READS",
+			  "AVERAGE WRITES", "TOTAL_READS", "TOTAL_WRITES");
 	if (!line) {
 		kfree(lines);
 		return -ENOMEM;
@@ -691,23 +699,22 @@ static ssize_t tier_attr_device_usage_show(struct tier_device *dev, char *buf)
 		if (dev->inerror)
 			goto end_error;
 		allocated >>= BLK_SHIFT;
-		devblocks =
-		    (dev->backdev[i]->endofdata -
-		     dev->backdev[i]->startofdata) >> BLK_SHIFT;
-		
+		devblocks = (dev->backdev[i]->endofdata -
+			     dev->backdev[i]->startofdata) >>
+			    BLK_SHIFT;
+
 		spin_lock(&dev->backdev[i]->magic_lock);
-                dev->backdev[i]->devmagic->average_reads =
-                    btier_div(dev->backdev[i]->devmagic->total_reads, devblocks);
-                dev->backdev[i]->devmagic->average_writes =
-                    btier_div(dev->backdev[i]->devmagic->total_writes, devblocks);
-		line =
-		    as_sprintf
-		    ("%7u %20s %15llu %15llu %15u %15u %15llu %15llu\n", i,
-		     dev->backdev[i]->fds->f_path.dentry->d_name.name, devblocks,
-		     allocated, dev->backdev[i]->devmagic->average_reads,
-		     dev->backdev[i]->devmagic->average_writes,
-		     dev->backdev[i]->devmagic->total_reads,
-		     dev->backdev[i]->devmagic->total_writes);
+		dev->backdev[i]->devmagic->average_reads = btier_div(
+		    dev->backdev[i]->devmagic->total_reads, devblocks);
+		dev->backdev[i]->devmagic->average_writes = btier_div(
+		    dev->backdev[i]->devmagic->total_writes, devblocks);
+		line = as_sprintf(
+		    "%7u %20s %15llu %15llu %15u %15u %15llu %15llu\n", i,
+		    dev->backdev[i]->fds->f_path.dentry->d_name.name, devblocks,
+		    allocated, dev->backdev[i]->devmagic->average_reads,
+		    dev->backdev[i]->devmagic->average_writes,
+		    dev->backdev[i]->devmagic->total_reads,
+		    dev->backdev[i]->devmagic->total_writes);
 		lines[i + 1] = line;
 		spin_unlock(&dev->backdev[i]->magic_lock);
 	}
@@ -747,23 +754,23 @@ TIER_ATTR_WO(clear_statistics);
 TIER_ATTR_WO(migrate_block);
 
 struct attribute *tier_attrs[] = {
-	&tier_attr_sequential_landing.attr,
-	&tier_attr_migrate_verbose.attr,
-	&tier_attr_discard_to_devices.attr,
-	&tier_attr_discard.attr,
-	&tier_attr_migration_interval.attr,
-	&tier_attr_migration_enable.attr,
-	&tier_attr_migration_policy.attr,
-	&tier_attr_attacheddevices.attr,
-	&tier_attr_numreads.attr,
-	&tier_attr_numwrites.attr,
-	&tier_attr_device_usage.attr,
-	&tier_attr_resize.attr,
-	&tier_attr_clear_statistics.attr,
-	&tier_attr_size_in_blocks.attr,
-	&tier_attr_show_blockinfo.attr,
-	&tier_attr_uuid.attr,
-	&tier_attr_internals.attr,
-	&tier_attr_migrate_block.attr,
-	NULL,
+    &tier_attr_sequential_landing.attr,
+    &tier_attr_migrate_verbose.attr,
+    &tier_attr_discard_to_devices.attr,
+    &tier_attr_discard.attr,
+    &tier_attr_migration_interval.attr,
+    &tier_attr_migration_enable.attr,
+    &tier_attr_migration_policy.attr,
+    &tier_attr_attacheddevices.attr,
+    &tier_attr_numreads.attr,
+    &tier_attr_numwrites.attr,
+    &tier_attr_device_usage.attr,
+    &tier_attr_resize.attr,
+    &tier_attr_clear_statistics.attr,
+    &tier_attr_size_in_blocks.attr,
+    &tier_attr_show_blockinfo.attr,
+    &tier_attr_uuid.attr,
+    &tier_attr_internals.attr,
+    &tier_attr_migrate_block.attr,
+    NULL,
 };

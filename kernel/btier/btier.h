@@ -3,41 +3,41 @@
 
 #ifdef __KERNEL__
 #define pr_fmt(fmt) "btier: " fmt
-#include <linux/bio.h>
-#include <linux/slab.h>
-#include <linux/gfp.h>
-#include <linux/mempool.h>
-#include <linux/blkdev.h>
-#include <linux/spinlock.h>
-#include <linux/mutex.h>
-#include <linux/rwsem.h>
+#include "btier_common.h"
+#include <asm/div64.h>
 #include <linux/atomic.h>
+#include <linux/bio.h>
+#include <linux/blkdev.h>
+#include <linux/blkdev.h>
+#include <linux/completion.h>
+#include <linux/crypto.h>
+#include <linux/delay.h>
+#include <linux/device.h>
+#include <linux/err.h>
+#include <linux/errno.h>
+#include <linux/falloc.h>
 #include <linux/file.h>
-#include <linux/module.h>
-#include <linux/moduleparam.h>
+#include <linux/fs.h>
+#include <linux/genhd.h>
+#include <linux/gfp.h>
+#include <linux/hdreg.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
-#include <linux/fs.h>
-#include <linux/errno.h>
-#include <linux/types.h>
-#include <linux/vmalloc.h>
-#include <linux/genhd.h>
-#include <linux/blkdev.h>
-#include <linux/hdreg.h>
-#include <linux/crypto.h>
-#include <linux/err.h>
-#include <linux/scatterlist.h>
-#include <linux/workqueue.h>
-#include <linux/completion.h>
-#include <linux/miscdevice.h>
-#include <linux/delay.h>
-#include <linux/falloc.h>
 #include <linux/kthread.h>
-#include <linux/version.h>
+#include <linux/mempool.h>
+#include <linux/miscdevice.h>
+#include <linux/module.h>
+#include <linux/moduleparam.h>
+#include <linux/mutex.h>
+#include <linux/rwsem.h>
+#include <linux/scatterlist.h>
+#include <linux/slab.h>
+#include <linux/spinlock.h>
 #include <linux/sysfs.h>
-#include <linux/device.h>
-#include <asm/div64.h>
-#include "btier_common.h"
+#include <linux/types.h>
+#include <linux/version.h>
+#include <linux/vmalloc.h>
+#include <linux/workqueue.h>
 #else
 typedef unsigned long long u64;
 typedef unsigned long u32;
@@ -54,28 +54,31 @@ typedef unsigned long u32;
 
 */
 
-#define BTIER_MAX_SIZE 1125899906842624ULL /* 1PB for now, although 4PB or higher is possible */
-#define BLKSIZE 1048576		/*Moving smaller blocks then 1M
-				  will lead to fragmentation */
-#define BLK_SHIFT 20            /*Adjust when changing BLKSIZE */
+#define BTIER_MAX_SIZE                                                         \
+	1125899906842624ULL /* 1PB for now, although 4PB or higher is possible \
+			       */
+#define BLKSIZE                                                                \
+	1048576      /*Moving smaller blocks then 1M                           \
+		       will lead to fragmentation */
+#define BLK_SHIFT 20 /*Adjust when changing BLKSIZE */
 
 //#define PAGE_SHIFT 12		/*4k page size */
-#define TIER_NAME_SIZE     64	/* Max lenght of the filenames */
-#define TIER_SET_FD        0xFE00
-#define TIER_SET_DEVSZ     0xFE03
-#define TIER_REGISTER      0xFE04
-#define TIER_DEREGISTER    0xFE05
-#define TIER_INIT          0xFE07
-#define TIER_BARRIER       0xFE08
-#define TIER_CACHESIZE     0xFE09
-#define TIER_SET_SECTORSIZE  0xFE0A
-#define TIER_HEADERSIZE    1048576
-#define TIER_DEVICE_BIT_MAGIC  0xabe
-#define TIER_DEVICE_BLOCK_MAGIC  0xafdf
+#define TIER_NAME_SIZE 64 /* Max lenght of the filenames */
+#define TIER_SET_FD 0xFE00
+#define TIER_SET_DEVSZ 0xFE03
+#define TIER_REGISTER 0xFE04
+#define TIER_DEREGISTER 0xFE05
+#define TIER_INIT 0xFE07
+#define TIER_BARRIER 0xFE08
+#define TIER_CACHESIZE 0xFE09
+#define TIER_SET_SECTORSIZE 0xFE0A
+#define TIER_HEADERSIZE 1048576
+#define TIER_DEVICE_BIT_MAGIC 0xabe
+#define TIER_DEVICE_BLOCK_MAGIC 0xafdf
 
-#define WD 1			/* Write disk */
-#define WC 2			/* Write cache */
-#define WA 3			/* All: Cache and disk */
+#define WD 1 /* Write disk */
+#define WC 2 /* Write cache */
+#define WA 3 /* All: Cache and disk */
 
 #define BTIER_MAX_DEVS 26
 #define BTIER_MAX_INFLIGHT 256
@@ -87,7 +90,7 @@ typedef unsigned long u32;
 #define KERNEL_SECTORSIZE 512
 #define MAX_BACKING_DEV 24
 /* Tier reserves 2 MB per device for playing data migration games. */
-#define TIER_DEVICE_PLAYGROUND BLKSIZE*2
+#define TIER_DEVICE_PLAYGROUND BLKSIZE * 2
 
 #define NORMAL_IO 1
 #define MIGRATION_IO 2
@@ -108,37 +111,42 @@ typedef unsigned long u32;
 
 #define TIERREAD 1
 #define TIERWRITE 2
-#define FSMODE 1		/* vfs datasync mode 0 or 1 */
+#define FSMODE 1 /* vfs datasync mode 0 or 1 */
 
-#define TIERMAXAGE 86400	/* When a chunk has not been used TIERMAXAGE it
-				   will migrate to a slower (higher) tier */
-#define TIERHITCOLLECTTIME 43200	/* Every block has TIERHITCOLLECTTIME to collect hits before
-					   being migrated when it has less hits than average */
-#define MIGRATE_INTERVAL 14400	/* Check every 4 hours */
+#define TIERMAXAGE                                                             \
+	86400 /* When a chunk has not been used TIERMAXAGE it                  \
+		 will migrate to a slower (higher) tier */
+#define TIERHITCOLLECTTIME                                                     \
+	43200 /* Every block has TIERHITCOLLECTTIME to collect hits before     \
+		 being migrated when it has less hits than average */
+#define MIGRATE_INTERVAL 14400 /* Check every 4 hours */
 
-/* MAX_STAT_COUNT 10000000 will allow devices up to 
+/* MAX_STAT_COUNT 10000000 will allow devices up to
  * 1.7 Zettabyte before statistics can overflow.
  * Max size of unsigned long long = 18446744073709551615
  * With a 1 MB chunksize this we have 1073741824 blocks per PB
- * So with 10000000 hits per block this is 
+ * So with 10000000 hits per block this is
  * 1073741824*10000000=10737418240000000 hits per PB
  * 18446744073709551615/10737418240000000=1717 PB before counters can overflow.
  */
-#define MAX_STAT_COUNT 10000000	/* We count max 10 million hits, hits are reset upon migration */
-#define MAX_STAT_DECAY 500000	/* Loose 5% hits per walk when we have reached the max */
+#define MAX_STAT_COUNT                                                         \
+	10000000 /* We count max 10 million hits, hits are reset upon          \
+		    migration */
+#define MAX_STAT_DECAY                                                         \
+	500000 /* Loose 5% hits per walk when we have reached the max */
 #ifndef MAX_PERFORMANCE
 enum states {
-	IDLE		= 0,
-	BIOREAD		= 1,
-	VFSREAD		= 2,
-	VFSWRITE	= 4,
-	BIOWRITE	= 8,
-	BIO		= 16,
-	WAITAIOPENDING  = 32,
-	PRESYNC		= 64,
-	PREBINFO	= 128,
-	PREALLOCBLOCK	= 256,
-	DISCARD		= 512
+	IDLE = 0,
+	BIOREAD = 1,
+	VFSREAD = 2,
+	VFSWRITE = 4,
+	BIOWRITE = 8,
+	BIO = 16,
+	WAITAIOPENDING = 32,
+	PRESYNC = 64,
+	PREBINFO = 128,
+	PREALLOCBLOCK = 256,
+	DISCARD = 512
 };
 #endif
 
@@ -156,7 +164,7 @@ struct physical_blockinfo {
 	time_t lastused;
 	unsigned int readcount;
 	unsigned int writecount;
-} __attribute__ ((packed));
+} __attribute__((packed));
 
 struct devicemagic {
 	unsigned int magic;
@@ -171,8 +179,8 @@ struct devicemagic {
 	u64 total_writes;
 	time_t average_age;
 	u64 devicesize;
-	u64 total_device_size;	/* Only valid for tier 0 */
-	u64 total_bitlist_size;	/* Only valid for tier 0 */
+	u64 total_device_size;  /* Only valid for tier 0 */
+	u64 total_bitlist_size; /* Only valid for tier 0 */
 	u64 bitlistsize;
 	u64 blocklistsize;
 	u64 startofbitlist;
@@ -180,7 +188,7 @@ struct devicemagic {
 	char fullpathname[1025];
 	struct data_policy dtapolicy;
 	char uuid[24];
-} __attribute__ ((packed));
+} __attribute__((packed));
 
 struct fd_s {
 	int fd;
@@ -189,13 +197,13 @@ struct fd_s {
 #ifdef __KERNEL__
 
 struct bio_task {
-	//atomic_t pending;
+	// atomic_t pending;
 	struct bio *parent_bio;
-	struct bio bio;        /* the cloned bio */
+	struct bio bio; /* the cloned bio */
 	struct tier_device *dev;
 	/*Holds the type of IO random or sequential*/
 	int iotype;
-        //int in_one;
+	// int in_one;
 };
 
 typedef struct {
@@ -207,8 +215,8 @@ typedef struct {
  * This structure has same members as physical_blockinfo, other than the
  * reserved, the order of members is intended to remove unaligned memory
  * access on 64 bit machine;
- * The addition of reserved won't increase memory, due to kmalloc paddings, 
- * but adding any one more member later will double its actual size. 
+ * The addition of reserved won't increase memory, due to kmalloc paddings,
+ * but adding any one more member later will double its actual size.
  */
 struct blockinfo {
 	u32 reserved;
@@ -225,15 +233,15 @@ struct bio_meta {
 	struct tier_device *dev;
 	struct bio_task *bt;
 	struct bio *parent_bio;
-	struct bio bio;        /* the cloned bio */
+	struct bio bio; /* the cloned bio */
 	struct blockinfo *binfo;
 	int ret;
 	u64 offset;
 	u64 blocknr;
 	unsigned int size;
-	unsigned flush:1;
-	unsigned discard:1;
-	unsigned allocate:1;
+	unsigned flush : 1;
+	unsigned discard : 1;
+	unsigned allocate : 1;
 };
 
 struct backing_device {
@@ -279,7 +287,7 @@ struct tier_device {
 	int active;
 	int attached_devices;
 
-	int (*ioctl) (struct tier_device *, int cmd, u64 arg);
+	int (*ioctl)(struct tier_device *, int cmd, u64 arg);
 
 	u64 nsectors;
 	unsigned int logical_block_size;
@@ -342,7 +350,7 @@ struct tier_device {
 	unsigned int users;
 };
 
-struct tier_work{
+struct tier_work {
 	struct work_struct work;
 	struct tier_device *device;
 };
@@ -351,8 +359,7 @@ extern struct workqueue_struct *btier_wq;
 extern struct kmem_cache *bio_task_cache;
 
 unsigned int get_chunksize(struct block_device *bdev, struct bio *bio);
-int tier_moving_block(struct tier_device *dev,
-		      struct blockinfo *olddevice,
+int tier_moving_block(struct tier_device *dev, struct blockinfo *olddevice,
 		      struct blockinfo *newdevice);
 struct blockinfo *get_blockinfo(struct tier_device *, u64, int);
 blk_qc_t tier_make_request(struct request_queue *q, struct bio *old_bio);
@@ -362,15 +369,14 @@ int tier_request_init(void);
 int write_blocklist(struct tier_device *, u64, struct blockinfo *, int);
 void set_debug_info(struct tier_device *dev, int state);
 void clear_debug_info(struct tier_device *dev, int state);
-int allocate_dev(struct tier_device *dev, u64 blocknr,
-			struct blockinfo *binfo, int device);
+int allocate_dev(struct tier_device *dev, u64 blocknr, struct blockinfo *binfo,
+		 int device);
 void tiererror(struct tier_device *dev, char *msg);
 int tier_sync(struct tier_device *dev);
-void discard_on_real_device(struct tier_device *dev,
-				   struct blockinfo *binfo);
+void discard_on_real_device(struct tier_device *dev, struct blockinfo *binfo);
 void clear_dev_list(struct tier_device *dev, struct blockinfo *binfo);
 void reset_counters_on_migration(struct tier_device *dev,
-					struct blockinfo *binfo);
+				 struct blockinfo *binfo);
 
 void free_bitlists(struct tier_device *);
 void resize_tier(struct tier_device *);

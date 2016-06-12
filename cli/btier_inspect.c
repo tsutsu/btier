@@ -1,19 +1,28 @@
 #define _LARGEFILE64_SOURCE
 #define _XOPEN_SOURCE 500
 #define _GNU_SOURCE
+#include "../kernel/btier/btier_common.c"
+#include <errno.h>
+#include <fcntl.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
 #include <string.h>
-#include <stdarg.h>
-#include <errno.h>
-#include "../kernel/btier/btier_common.c"
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 
-#define die_ioctlerr(f...) { fprintf(stderr,(f)); flock(fd, LOCK_UN); exit(-1); }
-#define die_syserr() { fprintf(stderr,"Fatal system error : %s",strerror(errno)); exit(-2); }
+#define die_ioctlerr(f...)                                                     \
+	{                                                                      \
+		fprintf(stderr, (f));                                          \
+		flock(fd, LOCK_UN);                                            \
+		exit(-1);                                                      \
+	}
+#define die_syserr()                                                           \
+	{                                                                      \
+		fprintf(stderr, "Fatal system error : %s", strerror(errno));   \
+		exit(-2);                                                      \
+	}
 
 int errno;
 
@@ -74,10 +83,10 @@ void *as_sprintf(const char *fmt, ...)
 		if (n > -1 && n < size)
 			return p;
 		/* Else try again with more space. */
-		if (n > -1)	/* glibc 2.1 */
-			size = n + 1;	/* precisely what is needed */
-		else		/* glibc 2.0 */
-			size *= 2;	/* twice the old size */
+		if (n > -1)	   /* glibc 2.1 */
+			size = n + 1; /* precisely what is needed */
+		else		      /* glibc 2.0 */
+			size *= 2;    /* twice the old size */
 		p = s_realloc(p, size);
 	}
 }
@@ -94,7 +103,7 @@ int s_pwrite(int fd, const void *buf, size_t len, u64 off)
 		if (thistime < 0) {
 			if (EINTR == errno || EAGAIN == errno)
 				continue;
-			return thistime;	/* always an error for writes */
+			return thistime; /* always an error for writes */
 		}
 		total += thistime;
 		thisoff += total;
@@ -116,8 +125,10 @@ int s_pread(int fd, void *buf, size_t len, off_t off)
 				continue;
 			return -1;
 		} else if (thistime == 0) {
-			/* EOF, but we didn't read the minimum.  return what we've read
-			 * so far and next read (if there is one) will return 0. */
+			/* EOF, but we didn't read the minimum.  return what
+			 * we've read
+			 * so far and next read (if there is one) will return 0.
+			 */
 			return total;
 		}
 		total += thistime;
@@ -128,9 +139,8 @@ int s_pread(int fd, void *buf, size_t len, off_t off)
 
 static struct option_info mkoptions;
 
-void backup_device_magic(int fd, u64 total_device_size,
-			 unsigned int devicenr, u64 blocklistsize,
-			 struct backing_device *bdev)
+void backup_device_magic(int fd, u64 total_device_size, unsigned int devicenr,
+			 u64 blocklistsize, struct backing_device *bdev)
 {
 	struct devicemagic magic;
 	int res, sfd;
@@ -152,9 +162,8 @@ void backup_device_magic(int fd, u64 total_device_size,
 		die_syserr();
 }
 
-void restore_device_magic(int fd, u64 total_device_size,
-			  unsigned int devicenr, u64 blocklistsize,
-			  struct backing_device *bdev)
+void restore_device_magic(int fd, u64 total_device_size, unsigned int devicenr,
+			  u64 blocklistsize, struct backing_device *bdev)
 {
 	struct devicemagic magic;
 	int res, sfd;
@@ -272,7 +281,7 @@ int tier_set_fd(int fd, char *datafile, int devicenr)
 			return -1;
 		}
 	} else {
-		devsize = (u64) stbuf.st_size;
+		devsize = (u64)stbuf.st_size;
 	}
 	devsize = round_to_blksize(devsize);
 	if (devsize < 1048576) {
@@ -285,17 +294,21 @@ int tier_set_fd(int fd, char *datafile, int devicenr)
 	bitlistsize = calc_bitlist_size(devsize);
 	soffset = devsize - bitlistsize;
 	if (mkoptions.backup) {
-		printf
-		    ("Backup bitlist of device     : %s\n     offset                    : 0x%llx (%llu)\n     device size               : 0x%llx (%llu)\n     bitlist size              : 0x%llx (%llu)\n\n",
-		     datafile, soffset, soffset, devsize, devsize, bitlistsize,
-		     bitlistsize);
+		printf("Backup bitlist of device     : %s\n     offset         "
+		       "           : 0x%llx (%llu)\n     device size           "
+		       "    : 0x%llx (%llu)\n     bitlist size              : "
+		       "0x%llx (%llu)\n\n",
+		       datafile, soffset, soffset, devsize, devsize,
+		       bitlistsize, bitlistsize);
 		backup_list(ffd, bitlistsize, soffset, "bitlist", devicenr);
 	}
 	if (mkoptions.restore) {
-		printf
-		    ("Restore bitlist of device     : %s\n     offset                    : 0x%llx (%llu)\n     device size               : 0x%llx (%llu)\n     bitlist size              : 0x%llx (%llu)\n\n",
-		     datafile, soffset, soffset, devsize, devsize, bitlistsize,
-		     bitlistsize);
+		printf("Restore bitlist of device     : %s\n     offset        "
+		       "            : 0x%llx (%llu)\n     device size          "
+		       "     : 0x%llx (%llu)\n     bitlist size              : "
+		       "0x%llx (%llu)\n\n",
+		       datafile, soffset, soffset, devsize, devsize,
+		       bitlistsize, bitlistsize);
 		restore_list(ffd, bitlistsize, soffset, "bitlist", devicenr);
 	}
 	mkoptions.backdev[devicenr]->tier_dta_file = ffd;
@@ -306,9 +319,9 @@ int tier_set_fd(int fd, char *datafile, int devicenr)
 
 void usage(char *name)
 {
-	printf
-	    ("%s -f datadev[:datadev:datadev] -b(ackup) -r(estore) -h(help)]\n",
-	     name);
+	printf(
+	    "%s -f datadev[:datadev:datadev] -b(ackup) -r(estore) -h(help)]\n",
+	    name);
 	exit(-1);
 }
 
@@ -348,9 +361,9 @@ int get_opts(int argc, char *argv[])
 			break;
 		case 'f':
 			if (optopt == 'f')
-				printf
-				    ("Option -%c requires a lessfs configuration file as argument.\n",
-				     optopt);
+				printf("Option -%c requires a lessfs "
+				       "configuration file as argument.\n",
+				       optopt);
 			else
 				parse_datafile(optarg);
 			break;
@@ -395,14 +408,12 @@ int main(int argc, char *argv[])
 	for (count = 0; count <= mkoptions.backdev_count; count++) {
 		dtaexists = stat(mkoptions.backdev[count]->datafile, &stdta);
 		if (S_ISBLK(stdta.st_mode)) {
-			if ((ffd =
-			     open(mkoptions.backdev[count]->datafile, mode,
-				  0600)) < 0) {
+			if ((ffd = open(mkoptions.backdev[count]->datafile,
+					mode, 0600)) < 0) {
 				if (ffd < 0) {
-					fprintf(stderr,
-						"Failed to open file %s\n",
-						mkoptions.backdev[count]->
-						datafile);
+					fprintf(
+					    stderr, "Failed to open file %s\n",
+					    mkoptions.backdev[count]->datafile);
 					exit(-1);
 				}
 			}
@@ -415,7 +426,7 @@ int main(int argc, char *argv[])
 			}
 			close(ffd);
 		} else
-			devsize = (u64) stdta.st_size;
+			devsize = (u64)stdta.st_size;
 		printf("Device size (raw)              : 0x%llx (%llu)\n",
 		       devsize, devsize);
 		devsize = round_to_blksize(devsize);
@@ -434,32 +445,30 @@ int main(int argc, char *argv[])
 		    mkoptions.backdev[count]->bitlistsize;
 	}
 
-	mkoptions.blocklistsize =
-	    calc_blocklist_size(mkoptions.total_device_size,
-				mkoptions.bitlistsize_total);
-	mkoptions.total_device_size =
-	    round_to_blksize(mkoptions.total_device_size -
-			     mkoptions.bitlistsize_total -
-			     mkoptions.blocklistsize -
-			     (mkoptions.backdev_count * header_size));
+	mkoptions.blocklistsize = calc_blocklist_size(
+	    mkoptions.total_device_size, mkoptions.bitlistsize_total);
+	mkoptions.total_device_size = round_to_blksize(
+	    mkoptions.total_device_size - mkoptions.bitlistsize_total -
+	    mkoptions.blocklistsize - (mkoptions.backdev_count * header_size));
 	printf("Total device size              : 0x%llx (%llu)\n",
 	       mkoptions.total_device_size, mkoptions.total_device_size);
-	soffset =
-	    mkoptions.backdev[0]->devicesize -
-	    mkoptions.backdev[0]->bitlistsize - mkoptions.blocklistsize;
+	soffset = mkoptions.backdev[0]->devicesize -
+		  mkoptions.backdev[0]->bitlistsize - mkoptions.blocklistsize;
 	if (mkoptions.backup) {
-		printf
-		    ("Backup blocklist of device   : %s\n     list size                 : 0x%llx (%llu)\n     starting from offset      : 0x%llx (%llu)\n\n",
-		     mkoptions.backdev[0]->datafile, mkoptions.blocklistsize,
-		     mkoptions.blocklistsize, soffset, soffset);
+		printf("Backup blocklist of device   : %s\n     list size      "
+		       "           : 0x%llx (%llu)\n     starting from offset  "
+		       "    : 0x%llx (%llu)\n\n",
+		       mkoptions.backdev[0]->datafile, mkoptions.blocklistsize,
+		       mkoptions.blocklistsize, soffset, soffset);
 		backup_list(mkoptions.backdev[0]->tier_dta_file,
 			    mkoptions.blocklistsize, soffset, "blocklist", 0);
 	}
 	if (mkoptions.restore) {
-		printf
-		    ("Restore blocklist of device   : %s\n     list size                 : 0x%llx (%llu)\n     starting from offset      : 0x%llx (%llu)\n\n",
-		     mkoptions.backdev[0]->datafile, mkoptions.blocklistsize,
-		     mkoptions.blocklistsize, soffset, soffset);
+		printf("Restore blocklist of device   : %s\n     list size     "
+		       "            : 0x%llx (%llu)\n     starting from offset "
+		       "     : 0x%llx (%llu)\n\n",
+		       mkoptions.backdev[0]->datafile, mkoptions.blocklistsize,
+		       mkoptions.blocklistsize, soffset, soffset);
 		restore_list(mkoptions.backdev[0]->tier_dta_file,
 			     mkoptions.blocklistsize, soffset, "blocklist", 0);
 	}
@@ -472,26 +481,24 @@ int main(int argc, char *argv[])
 		    mkoptions.backdev[0]->devicesize -
 		    mkoptions.backdev[0]->bitlistsize - mkoptions.blocklistsize;
 		if (mkoptions.backup) {
-			printf
-			    ("backup_device_magic device      : %u\n     size                      : 0x%llx (%llu)\n",
-			     count, mkoptions.total_device_size,
-			     mkoptions.total_device_size);
-			backup_device_magic(mkoptions.backdev[count]->
-					    tier_dta_file,
-					    mkoptions.total_device_size, count,
-					    mkoptions.blocklistsize,
-					    mkoptions.backdev[count]);
+			printf("backup_device_magic device      : %u\n     "
+			       "size                      : 0x%llx (%llu)\n",
+			       count, mkoptions.total_device_size,
+			       mkoptions.total_device_size);
+			backup_device_magic(
+			    mkoptions.backdev[count]->tier_dta_file,
+			    mkoptions.total_device_size, count,
+			    mkoptions.blocklistsize, mkoptions.backdev[count]);
 		}
 		if (mkoptions.restore) {
-			printf
-			    ("restore_device_magic device      : %u\n     size                      : 0x%llx (%llu)\n",
-			     count, mkoptions.total_device_size,
-			     mkoptions.total_device_size);
-			restore_device_magic(mkoptions.backdev[count]->
-					     tier_dta_file,
-					     mkoptions.total_device_size, count,
-					     mkoptions.blocklistsize,
-					     mkoptions.backdev[count]);
+			printf("restore_device_magic device      : %u\n     "
+			       "size                      : 0x%llx (%llu)\n",
+			       count, mkoptions.total_device_size,
+			       mkoptions.total_device_size);
+			restore_device_magic(
+			    mkoptions.backdev[count]->tier_dta_file,
+			    mkoptions.total_device_size, count,
+			    mkoptions.blocklistsize, mkoptions.backdev[count]);
 		}
 	}
 end_exit:
