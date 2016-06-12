@@ -344,7 +344,7 @@ static int tier_file_write(struct tier_device *dev, unsigned int device,
 	if (likely(bw == len))
 		return 0;
 	pr_err("Write error on device %s at offset %llu, length %llu\n",
-	       backdev->fds->f_dentry->d_name.name,
+	       backdev->fds->f_path.dentry->d_name.name,
 	       (unsigned long long)pos, (unsigned long long)len);
 	if (bw >= 0)
 		bw = -EIO;
@@ -1237,7 +1237,7 @@ static void migrate_timer_expired(unsigned long q)
 static void tier_check(struct tier_device *dev, int devicenr)
 {
 	pr_info("device %s is not clean, check forced\n",
-		dev->backdev[devicenr]->fds->f_dentry->d_name.name);
+		dev->backdev[devicenr]->fds->f_path.dentry->d_name.name);
 	recover_journal(dev, devicenr);
 }
 
@@ -1399,13 +1399,13 @@ char *btier_uuid(struct tier_device *dev)
 	if (!xbuf)
 		return NULL;
 	for (i = 0; i < dev->attached_devices; i++) {
-		name = dev->backdev[i]->fds->f_dentry->d_name.name;
+		name = dev->backdev[i]->fds->f_path.dentry->d_name.name;
 		thash = tiger_hash((char *)name, strlen(name));
 		if (!thash) {
 			/* When tiger is not supported, use a simple UUID construction */
 			thash = kzalloc(TIGER_HASH_LEN, GFP_KERNEL);
 			memcpy(thash,
-			       dev->backdev[i]->fds->f_dentry->d_name.name,
+			       dev->backdev[i]->fds->f_path.dentry->d_name.name,
 			       hashlen);
 		}
 		for (n = 0; n < hashlen; n++) {
@@ -1492,7 +1492,7 @@ static int order_devices(struct tier_device *dev)
 		dev->backdev[i]->devmagic->clean = DIRTY;
 		write_device_magic(dev, i);
 		dtapolicy = &dev->backdev[i]->devmagic->dtapolicy;
-		devicename = dev->backdev[i]->fds->f_dentry->d_name.name;
+		devicename = dev->backdev[i]->fds->f_path.dentry->d_name.name;
 		pr_info("device %s registered as tier %u\n", devicename, i);
 		if (0 == dtapolicy->max_age)
 			dtapolicy->max_age = TIERMAXAGE;
@@ -1814,7 +1814,7 @@ static int tier_set_fd(struct tier_device *dev, struct fd_s *fds,
 	if (!(file->f_mode & FMODE_WRITE)) {
 		return -EPERM;
 	}
-        fullname = as_sprintf("/dev/%s", file->f_dentry->d_name.name);
+        fullname = as_sprintf("/dev/%s", file->f_path.dentry->d_name.name);
         if (!fullname)
                 return -ENOMEM;
         bdev = lookup_bdev(fullname);
@@ -2134,7 +2134,7 @@ static int do_resize_tier(struct tier_device *dev, int devicenr,
 	u64 startofnewbitlist;
 
 	pr_info("resize device %s devicenr %u from %llu to %llu\n",
-		dev->backdev[devicenr]->fds->f_dentry->d_name.name,
+		dev->backdev[devicenr]->fds->f_path.dentry->d_name.name,
 		devicenr, dev->backdev[devicenr]->devicesize, curdevsize);
 	startofnewbitlist = newdevsize - newbitlistsize;
 	res =
