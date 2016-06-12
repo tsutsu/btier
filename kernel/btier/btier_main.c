@@ -1498,7 +1498,7 @@ static int order_devices(struct tier_device *dev)
 			dtapolicy->max_age = TIERMAXAGE;
 		if (0 == dtapolicy->hit_collecttime)
 			dtapolicy->hit_collecttime = TIERHITCOLLECTTIME;
-		bdev = lookup_bdev(dev->backdev[i]->devmagic->fullpathname);
+		bdev = lookup_bdev(dev->backdev[i]->devmagic->fullpathname, 0);
 		if (IS_ERR(bdev)) {
 			dev->backdev[i]->bdev = NULL;
 			pr_info("device %s is a file\n", devicename);
@@ -1817,7 +1817,7 @@ static int tier_set_fd(struct tier_device *dev, struct fd_s *fds,
         fullname = as_sprintf("/dev/%s", file->f_path.dentry->d_name.name);
         if (!fullname)
                 return -ENOMEM;
-        bdev = lookup_bdev(fullname);
+        bdev = lookup_bdev(fullname, 0);
         kfree(fullname);
         if (IS_ERR(bdev)) {
                 pr_err("btier 2 no longer supports files as backend\n");
