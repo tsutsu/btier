@@ -665,7 +665,7 @@ static inline struct bio_task *task_alloc(struct tier_device *dev,
 	return bt;
 }
 
-void tier_make_request(struct request_queue *q, struct bio *parent_bio)
+blk_qc_t tier_make_request(struct request_queue *q, struct bio *parent_bio)
 {
 	int cpu;
 	struct tier_device *dev = q->queuedata;
@@ -713,7 +713,7 @@ out:
 end_return:
 	atomic_set(&dev->wqlock, 0);
 	up_read(&dev->qlock);
-	return;
+	return BLK_QC_T_NONE;
 }
 
 void tier_request_exit(void)

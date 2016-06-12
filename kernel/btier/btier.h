@@ -355,7 +355,7 @@ int tier_moving_block(struct tier_device *dev,
 		      struct blockinfo *olddevice,
 		      struct blockinfo *newdevice);
 struct blockinfo *get_blockinfo(struct tier_device *, u64, int);
-void tier_make_request(struct request_queue *q, struct bio *old_bio);
+blk_qc_t tier_make_request(struct request_queue *q, struct bio *old_bio);
 void tier_request_exit(void);
 int tier_request_init(void);
 
