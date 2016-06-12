@@ -44,19 +44,8 @@ unsigned int get_chunksize(struct block_device *bdev,
         chunksize = min(max_hwsectors, max_sectors) << 9;
 
 	bio_for_each_segment(bv, bio, iter) {
-		struct bvec_merge_data bvm = {
-			.bi_bdev        = bdev,
-			.bi_sector      = bio->bi_iter.bi_sector,
-			.bi_size        = ret,
-			.bi_rw          = bio->bi_rw,
-		};
-
 		if (seg == min_t(unsigned, BIO_MAX_PAGES,
 				 queue_max_segments(q)))
-			break;
-
-		if (q->merge_bvec_fn &&
-		    q->merge_bvec_fn(q, &bvm, &bv) < (int) bv.bv_len)
 			break;
 
 		seg++;
