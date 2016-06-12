@@ -1,21 +1,30 @@
 #define _LARGEFILE64_SOURCE
 #define _XOPEN_SOURCE 500
 #define _GNU_SOURCE
+#include "../kernel/btier/btier_common.c"
+#include <errno.h>
+#include <fcntl.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/stat.h>
+#include <string.h>
 #include <sys/file.h>
 #include <sys/ioctl.h>
-#include <fcntl.h>
-#include <string.h>
-#include <stdarg.h>
-#include <errno.h>
-#include "../kernel/btier/btier_common.c"
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 
-#define die_ioctlerr(f...) { fprintf(stderr,(f)); flock(fd, LOCK_UN); exit(-1); }
-#define die_syserr() { fprintf(stderr,"Fatal system error : %s",strerror(errno)); exit(-2); }
+#define die_ioctlerr(f...)                                                     \
+	{                                                                      \
+		fprintf(stderr, (f));                                          \
+		flock(fd, LOCK_UN);                                            \
+		exit(-1);                                                      \
+	}
+#define die_syserr()                                                           \
+	{                                                                      \
+		fprintf(stderr, "Fatal system error : %s", strerror(errno));   \
+		exit(-2);                                                      \
+	}
 
 int errno;
 
@@ -76,10 +85,10 @@ void *as_sprintf(const char *fmt, ...)
 		if (n > -1 && n < size)
 			return p;
 		/* Else try again with more space. */
-		if (n > -1)	/* glibc 2.1 */
-			size = n + 1;	/* precisely what is needed */
-		else		/* glibc 2.0 */
-			size *= 2;	/* twice the old size */
+		if (n > -1)	   /* glibc 2.1 */
+			size = n + 1; /* precisely what is needed */
+		else		      /* glibc 2.0 */
+			size *= 2;    /* twice the old size */
 		p = s_realloc(p, size);
 	}
 }
@@ -96,7 +105,7 @@ int s_pwrite(int fd, const void *buf, size_t len, u64 off)
 		if (thistime < 0) {
 			if (EINTR == errno || EAGAIN == errno)
 				continue;
-			return thistime;	/* always an error for writes */
+			return thistime; /* always an error for writes */
 		}
 		total += thistime;
 		thisoff += total;
@@ -118,8 +127,10 @@ int s_pread(int fd, void *buf, size_t len, off_t off)
 				continue;
 			return -1;
 		} else if (thistime == 0) {
-			/* EOF, but we didn't read the minimum.  return what we've read
-			 * so far and next read (if there is one) will return 0. */
+			/* EOF, but we didn't read the minimum.  return what
+			 * we've read
+			 * so far and next read (if there is one) will return 0.
+			 */
 			return total;
 		}
 		total += thistime;
@@ -130,9 +141,8 @@ int s_pread(int fd, void *buf, size_t len, off_t off)
 
 static struct option_info mkoptions;
 
-void write_device_magic(int fd, u64 total_device_size,
-			unsigned int devicenr, u64 blocklistsize,
-			struct backing_device *bdev)
+void write_device_magic(int fd, u64 total_device_size, unsigned int devicenr,
+			u64 blocklistsize, struct backing_device *bdev)
 {
 	char *block;
 	struct devicemagic magic;
@@ -214,7 +224,7 @@ int tier_set_fd(int fd, char *datafile, int devicenr)
 		}
 	} else {
 		close(ffd);
-                return -1;
+		return -1;
 	}
 	devsize = round_to_blksize(devsize);
 	if (devsize < 1048576) {
@@ -227,18 +237,20 @@ int tier_set_fd(int fd, char *datafile, int devicenr)
 	bitlistsize = calc_bitlist_size(devsize);
 	if (mkoptions.create) {
 		soffset = devsize - bitlistsize;
-		printf
-		    ("Clearing bitlist of device     : %s\n     offset                    : 0x%llx (%llu)\n     device size               : 0x%llx (%llu)\n     bitlist size              : 0x%llx (%llu)\n\n",
-		     datafile, soffset, soffset, devsize, devsize, bitlistsize,
-		     bitlistsize);
+		printf("Clearing bitlist of device     : %s\n     offset       "
+		       "             : 0x%llx (%llu)\n     device size         "
+		       "      : 0x%llx (%llu)\n     bitlist size              "
+		       ": 0x%llx (%llu)\n\n",
+		       datafile, soffset, soffset, devsize, devsize,
+		       bitlistsize, bitlistsize);
 		clear_list(ffd, bitlistsize, soffset);
 	} else {
 		res = s_pread(ffd, &tier_magic, sizeof(tier_magic), 0);
 		if (res != sizeof(tier_magic))
 			die_syserr();
 		if (tier_magic.magic != TIER_DEVICE_BIT_MAGIC) {
-			fprintf(stderr,
-				"Datastore %s has invalid magic, not a tier device\n",
+			fprintf(stderr, "Datastore %s has invalid magic, not a "
+					"tier device\n",
 				datafile);
 			return -1;
 		}
@@ -269,9 +281,8 @@ int tier_setup(int op, int fd, int devicenr)
 
 	switch (op) {
 	case TIER_SET_FD:
-		if (0 !=
-		    tier_set_fd(fd, mkoptions.backdev[devicenr]->datafile,
-				devicenr)) {
+		if (0 != tier_set_fd(fd, mkoptions.backdev[devicenr]->datafile,
+				     devicenr)) {
 			rc = 1;
 			return rc;
 		}
@@ -279,31 +290,33 @@ int tier_setup(int op, int fd, int devicenr)
 	case TIER_SET_SECTORSIZE:
 		if (ioctl(fd, TIER_SET_SECTORSIZE, mkoptions.sectorsize) < 0) {
 			rc = 1;
-			fprintf(stderr,
-				"ioctl TIER_SET_SECTORSIZE failed on /dev/tiercontrol\n");
+			fprintf(stderr, "ioctl TIER_SET_SECTORSIZE failed on "
+					"/dev/tiercontrol\n");
 			return rc;
 		}
 		break;
 	case TIER_REGISTER:
 		if (ioctl(fd, TIER_REGISTER, 0) < 0) {
 			rc = 1;
-			fprintf(stderr,
-				"ioctl TIER_REGISTER failed on /dev/tiercontrol\n");
+			fprintf(
+			    stderr,
+			    "ioctl TIER_REGISTER failed on /dev/tiercontrol\n");
 			return rc;
 		}
 		break;
 	case TIER_DEREGISTER:
-		if (ioctl(fd, TIER_DEREGISTER, (unsigned long)mkoptions.device)
-		    < 0) {
+		if (ioctl(fd, TIER_DEREGISTER,
+			  (unsigned long)mkoptions.device) < 0) {
 			if (errno == EBUSY) {
-				fprintf(stderr,
-					"Failed to deregister active device %s\n",
-					mkoptions.device);
-				fprintf(stderr,
-					"Is the device still mounted or in use by multipathd?\n");
+				fprintf(
+				    stderr,
+				    "Failed to deregister active device %s\n",
+				    mkoptions.device);
+				fprintf(stderr, "Is the device still mounted "
+						"or in use by multipathd?\n");
 			} else
-				fprintf(stderr,
-					"ioctl TIER_DEREGISTER failed on /dev/tiercontrol\n");
+				fprintf(stderr, "ioctl TIER_DEREGISTER failed "
+						"on /dev/tiercontrol\n");
 			rc = 1;
 			return rc;
 		}
@@ -325,13 +338,13 @@ int tier_setup(int op, int fd, int devicenr)
 
 void usage(char *name)
 {
-	printf
-	    ("Create : %s -f datadev[:datadev:datadev] [-z sectorsize(512..4096) -c(create) -h(help)]\n",
-	     name);
-	printf
-	    ("         datadevX can either be a path to a file or a blockdevice. No more then 16 devices are supported.\n");
-	printf
-	    ("         specify the fastest storage first. E.g. -f /dev/ssd:/dev/sas:/dev/sata.\n");
+	printf("Create : %s -f datadev[:datadev:datadev] [-z "
+	       "sectorsize(512..4096) -c(create) -h(help)]\n",
+	       name);
+	printf("         datadevX can either be a path to a file or a "
+	       "blockdevice. No more then 16 devices are supported.\n");
+	printf("         specify the fastest storage first. E.g. -f "
+	       "/dev/ssd:/dev/sas:/dev/sata.\n");
 	printf("Detach : %s -d /dev/tier_device_name\n", name);
 	exit(-1);
 }
@@ -361,39 +374,39 @@ int get_opts(int argc, char *argv[])
 {
 
 	int c, ret = 0;
-        int has_devices = 0;
+	int has_devices = 0;
 
 	while ((c = getopt(argc, argv, "cd:hf:z:")) != -1)
 		switch (c) {
 		case 'c':
 			mkoptions.create = 1;
 			break;
-                case 'd':
-                        if (optopt == 'd')
-                                printf
-                                    ("Option -%c requires a device as argument.\n",
-                                     optopt);
-                        else {
-                                mkoptions.device = optarg;
-                                has_devices = 1;
-                        }
-                        break;
+		case 'd':
+			if (optopt == 'd')
+				printf("Option -%c requires a device as "
+				       "argument.\n",
+				       optopt);
+			else {
+				mkoptions.device = optarg;
+				has_devices = 1;
+			}
+			break;
 		case 'f':
 			if (optopt == 'f')
-				printf
-				    ("Option -%c requires a device or file as argument.\n",
-				     optopt);
+				printf("Option -%c requires a device or file "
+				       "as argument.\n",
+				       optopt);
 			else {
 				parse_datafile(optarg);
-                                has_devices = 1;
+				has_devices = 1;
 			}
 
 			break;
 		case 'z':
 			if (optopt == 'z')
-				printf
-				    ("Option -%c requires sector size as argument.\n",
-				     optopt);
+				printf("Option -%c requires sector size as "
+				       "argument.\n",
+				       optopt);
 			else {
 				sscanf(optarg, "%i", &mkoptions.sectorsize);
 				if (mkoptions.sectorsize > 4096)
@@ -405,8 +418,9 @@ int get_opts(int argc, char *argv[])
 					ret *= 512;
 					if (ret != mkoptions.sectorsize) {
 						ret = -1;
-						printf
-						    ("The sectorsize has to be a multiple of 512 bytes\n");
+						printf("The sectorsize has to "
+						       "be a multiple of 512 "
+						       "bytes\n");
 					} else
 						ret = 0;
 				}
@@ -416,12 +430,13 @@ int get_opts(int argc, char *argv[])
 			usage(argv[0]);
 			break;
 		default:
-                        exit(-1);
+			exit(-1);
 		}
-        if (!has_devices) {
-            printf("btier_setup requires at least one device to be specified with -f\n");
-            ret = -1;
-        }
+	if (!has_devices) {
+		printf("btier_setup requires at least one device to be "
+		       "specified with -f\n");
+		ret = -1;
+	}
 	printf("\n");
 	return ret;
 }
@@ -455,8 +470,9 @@ int main(int argc, char *argv[])
 		exit(-1);
 
 	if ((fd = open("/dev/tiercontrol", mode)) < 0) {
-		fprintf(stderr,
-			"Failed to open /dev/tiercontrol, is tier.ko loaded?\n");
+		fprintf(
+		    stderr,
+		    "Failed to open /dev/tiercontrol, is tier.ko loaded?\n");
 		exit(-1);
 	}
 
@@ -488,14 +504,12 @@ int main(int argc, char *argv[])
 	for (count = 0; count <= mkoptions.backdev_count; count++) {
 		dtaexists = stat(mkoptions.backdev[count]->datafile, &stdta);
 		if (S_ISBLK(stdta.st_mode)) {
-			if ((ffd =
-			     open(mkoptions.backdev[count]->datafile, mode,
-				  0600)) < 0) {
+			if ((ffd = open(mkoptions.backdev[count]->datafile,
+					mode, 0600)) < 0) {
 				if (ffd < 0) {
-					fprintf(stderr,
-						"Failed to open file %s\n",
-						mkoptions.backdev[count]->
-						datafile);
+					fprintf(
+					    stderr, "Failed to open file %s\n",
+					    mkoptions.backdev[count]->datafile);
 					exit(-1);
 				}
 			}
@@ -508,10 +522,11 @@ int main(int argc, char *argv[])
 			}
 			close(ffd);
 		} else {
-			fprintf(stderr, "Btier 2.0 no longer supports the use of files as backend devices: %s\n",
-                                mkoptions.backdev[count]->datafile);
-                        return -1;
-                }
+			fprintf(stderr, "Btier 2.0 no longer supports the use "
+					"of files as backend devices: %s\n",
+				mkoptions.backdev[count]->datafile);
+			return -1;
+		}
 		printf("Device size (raw)              : 0x%llx (%llu)\n",
 		       devsize, devsize);
 		devsize = round_to_blksize(devsize);
@@ -537,24 +552,22 @@ int main(int argc, char *argv[])
 			die_ioctlerr("ioctl TIER_SET_SECTORSIZE failed\n");
 	}
 
-	mkoptions.blocklistsize =
-	    calc_blocklist_size(mkoptions.total_device_size,
-				mkoptions.bitlistsize_total);
-	mkoptions.total_device_size =
-	    round_to_blksize(mkoptions.total_device_size -
-			     mkoptions.bitlistsize_total -
-			     mkoptions.blocklistsize -
-			     (mkoptions.backdev_count * header_size));
+	mkoptions.blocklistsize = calc_blocklist_size(
+	    mkoptions.total_device_size, mkoptions.bitlistsize_total);
+	mkoptions.total_device_size = round_to_blksize(
+	    mkoptions.total_device_size - mkoptions.bitlistsize_total -
+	    mkoptions.blocklistsize - (mkoptions.backdev_count * header_size));
 	printf("Total device size              : 0x%llx (%llu)\n",
 	       mkoptions.total_device_size, mkoptions.total_device_size);
 	if (mkoptions.create) {
-		soffset =
-		    mkoptions.backdev[0]->devicesize -
-		    mkoptions.backdev[0]->bitlistsize - mkoptions.blocklistsize;
-		printf
-		    ("Clearing blocklist of device   : %s\n     list size                 : 0x%llx (%llu)\n     starting from offset      : 0x%llx (%llu)\n\n",
-		     mkoptions.backdev[0]->datafile, mkoptions.blocklistsize,
-		     mkoptions.blocklistsize, soffset, soffset);
+		soffset = mkoptions.backdev[0]->devicesize -
+			  mkoptions.backdev[0]->bitlistsize -
+			  mkoptions.blocklistsize;
+		printf("Clearing blocklist of device   : %s\n     list size    "
+		       "             : 0x%llx (%llu)\n     starting from "
+		       "offset      : 0x%llx (%llu)\n\n",
+		       mkoptions.backdev[0]->datafile, mkoptions.blocklistsize,
+		       mkoptions.blocklistsize, soffset, soffset);
 		clear_list(mkoptions.backdev[0]->tier_dta_file,
 			   mkoptions.blocklistsize, soffset);
 	}
@@ -567,15 +580,14 @@ int main(int argc, char *argv[])
 		    mkoptions.backdev[0]->devicesize -
 		    mkoptions.backdev[0]->bitlistsize - mkoptions.blocklistsize;
 		if (mkoptions.create) {
-			printf
-			    ("write_device_magic device      : %u\n     size                      : 0x%llx (%llu)\n",
-			     count, mkoptions.total_device_size,
-			     mkoptions.total_device_size);
-			write_device_magic(mkoptions.backdev[count]->
-					   tier_dta_file,
-					   mkoptions.total_device_size, count,
-					   mkoptions.blocklistsize,
-					   mkoptions.backdev[count]);
+			printf("write_device_magic device      : %u\n     size "
+			       "                     : 0x%llx (%llu)\n",
+			       count, mkoptions.total_device_size,
+			       mkoptions.total_device_size);
+			write_device_magic(
+			    mkoptions.backdev[count]->tier_dta_file,
+			    mkoptions.total_device_size, count,
+			    mkoptions.blocklistsize, mkoptions.backdev[count]);
 		}
 	}
 	ret = tier_setup(TIER_REGISTER, fd, 0);
