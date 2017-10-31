@@ -168,6 +168,15 @@ void write_device_magic(int fd, u64 total_device_size, unsigned int devicenr,
 	if (res != BLKSIZE)
 		die_syserr();
 	free(block);
+
+	fsync(fd);
+	res = s_pread(fd, &magic, sizeof(struct devicemagic), 0);
+	if (res != sizeof(struct devicemagic))
+		die_syserr();
+	if (magic.magic != TIER_DEVICE_BIT_MAGIC) {
+		fprintf(stderr, "Datastore %s failed to verify written magic\n"
+			bdev->datafile);
+	}
 }
 
 void clear_list(int fd, u64 size, u64 soffset)
