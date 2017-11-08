@@ -1239,7 +1239,7 @@ static void wipe_bitlist(struct tier_device *dev, int device,
 	u64 offset = 0;
 
 	buffer = kzalloc(PAGE_SIZE, GFP_KERNEL);
-	while (offset < bitlistsize) {
+	while (offset + PAGE_SIZE < bitlistsize) {
 		tier_file_write(dev, device, buffer, PAGE_SIZE,
 				startofbitlist + offset);
 		offset += PAGE_SIZE;
@@ -2023,7 +2023,7 @@ static int migrate_bitlist(struct tier_device *dev, int devicenr,
 	int res = 0;
 
 	pr_info("migrate_bitlist : device %u\n", devicenr);
-	if (newstartofbitlist < dev->backdev[devicenr]->devicesize) {
+	if (newstartofbitlist + newbitlistsize < dev->backdev[devicenr]->devicesize) {
 		pr_info("Device size has not grown enough to expand\n");
 		return -1;
 	}
@@ -2108,8 +2108,7 @@ static int migrate_data_if_needed(struct tier_device *dev, u64 startofblocklist,
 }
 
 static int do_resize_tier(struct tier_device *dev, int devicenr, u64 newdevsize,
-			  u64 newblocklistsize, u64 newbitlistsize,
-			  u64 curdevsize)
+			  u64 newblocklistsize, u64 newbitlistsize)
 {
 	int res = 0;
 	u64 startofnewblocklist;
@@ -2117,7 +2116,7 @@ static int do_resize_tier(struct tier_device *dev, int devicenr, u64 newdevsize,
 
 	pr_info("resize device %s devicenr %u from %llu to %llu\n",
 		dev->backdev[devicenr]->fds->f_path.dentry->d_name.name,
-		devicenr, dev->backdev[devicenr]->devicesize, curdevsize);
+		devicenr, dev->backdev[devicenr]->devicesize, newdevsize);
 	startofnewbitlist = newdevsize - newbitlistsize;
 	res = migrate_bitlist(dev, devicenr, newdevsize, newbitlistsize,
 			      startofnewbitlist);
@@ -2243,7 +2242,7 @@ void resize_tier(struct tier_device *dev)
 		found++;
 		pr_info("newblocklistsize=%llu\n", newblocklistsize);
 		res = do_resize_tier(dev, count, curdevsize, newblocklistsize,
-				     newbitlistsize, curdevsize);
+				     newbitlistsize);
 	}
 	if (0 == found) {
 		pr_info("Ignoring request to resize, no devices have changed "
