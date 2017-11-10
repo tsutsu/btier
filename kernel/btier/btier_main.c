@@ -882,7 +882,7 @@ int migrate_direct(struct tier_device *dev, u64 blocknr, int device)
 	return 0;
 }
 
-int load_bitlists(struct tier_device *dev)
+static int load_bitlists(struct tier_device *dev)
 {
 	int device;
 	u64 cur;
@@ -908,7 +908,7 @@ int load_bitlists(struct tier_device *dev)
 	return res;
 }
 
-void free_bitlists(struct tier_device *dev)
+static void free_bitlists(struct tier_device *dev)
 {
 	int device;
 
@@ -1512,17 +1512,6 @@ end_error:
 	return res;
 }
 
-static void register_new_device_size(struct tier_device *dev)
-{
-
-	dev->nsectors = sector_divide(dev->size, dev->logical_block_size);
-	dev->size = dev->nsectors * dev->logical_block_size;
-	set_capacity(dev->gd, dev->nsectors * (dev->logical_block_size >> 9));
-	revalidate_disk(dev->gd);
-	/* let user-space know about the new size */
-	kobject_uevent(&disk_to_dev(dev->gd)->kobj, KOBJ_CHANGE);
-}
-
 static int alloc_moving_bio(struct tier_device *dev)
 {
 	int bvecs, bv;
@@ -1765,6 +1754,43 @@ static int tier_register(struct tier_device *dev)
 out_unregister:
 	unregister_blkdev(dev->major_num, dev->devname);
 out:
+	return ret;
+}
+
+static int register_new_device_size(struct tier_device *dev, u64 newdevsize)
+{
+	int ret;
+
+	free_bitlists(dev);
+	free_blocklist(dev);
+	free_blocklock(dev);
+
+	dev->nsectors = sector_divide(newdevsize, dev->logical_block_size);
+	dev->size = dev->nsectors * dev->logical_block_size;
+	dev->backdev[0]->devmagic->total_device_size = dev->size;
+
+	ret = alloc_blocklock(dev);
+	if (ret != 0) {
+		tiererror(dev, "alloc failed for new block_lock");
+		return ret;
+	}
+	ret = load_blocklist(dev);
+	if (ret != 0) {
+		tiererror(dev, "loading new blocklist failed");
+		return ret;
+	}
+	ret = load_bitlists(dev);
+	if (ret != 0) {
+		tiererror(dev, "loading new bitlists failed");
+		return ret;
+	}
+
+	blk_queue_max_discard_sectors(dev->rqueue, dev->size >> 9);
+	set_capacity(dev->gd, dev->size >> 9);
+	revalidate_disk(dev->gd);
+	/* let user-space know about the new size */
+	kobject_uevent(&disk_to_dev(dev->gd)->kobj, KOBJ_CHANGE);
+
 	return ret;
 }
 
@@ -2241,6 +2267,7 @@ void resize_tier(struct tier_device *dev)
 		    new_total_bitlistsize(dev, count, newbitlistsize);
 		newblocklistsize =
 		    calc_blocklist_size(newdevsize, newbitlistsize_total);
+		newdevsize = newdevsize - newblocklistsize - newbitlistsize_total;
 		// Make sure there is plenty of space
 		if (curdevsize < dev->backdev[count]->devicesize +
 				     newblocklistsize + newbitlistsize +
@@ -2260,17 +2287,9 @@ void resize_tier(struct tier_device *dev)
 			"in size\n");
 	} else {
 		if (res == 0) {
-			free_blocklist(dev);
 			pr_info("Device %s is resized from %llu to %llu\n",
-				dev->devname, dev->size,
-				newdevsize - newblocklistsize -
-				    newbitlistsize_total);
-			dev->size = newdevsize - newblocklistsize -
-				    newbitlistsize_total;
-			dev->backdev[0]->devmagic->total_device_size =
-			    dev->size;
-			register_new_device_size(dev);
-			load_blocklist(dev);
+				dev->devname, dev->size, newdevsize);
+			(void)register_new_device_size(dev, newdevsize);
 		}
 	}
 	return;

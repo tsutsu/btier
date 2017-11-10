@@ -225,9 +225,7 @@ static ssize_t tier_attr_resize_store(struct tier_device *dev, const char *buf,
 	if ('1' != buf[0])
 		return s;
 	down_write(&dev->qlock);
-	free_bitlists(dev);
 	resize_tier(dev);
-	load_bitlists(dev);
 	up_write(&dev->qlock);
 	return s;
 }

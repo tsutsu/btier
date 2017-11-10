@@ -378,9 +378,7 @@ void clear_dev_list(struct tier_device *dev, struct blockinfo *binfo);
 void reset_counters_on_migration(struct tier_device *dev,
 				 struct blockinfo *binfo);
 
-void free_bitlists(struct tier_device *);
 void resize_tier(struct tier_device *);
-int load_bitlists(struct tier_device *);
 void *as_sprintf(const char *, ...);
 u64 allocated_on_device(struct tier_device *, int);
 void btier_clear_statistics(struct tier_device *dev);
