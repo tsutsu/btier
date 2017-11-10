@@ -2023,7 +2023,7 @@ static int copylist(struct tier_device *dev, int devicenr, u64 ostart,
 			break;
 		offset += PAGE_SIZE;
 	}
-	if (offset < osize) {
+	if (offset < osize && res == 0) {
 		res = tier_file_read(dev, devicenr, buffer, osize - offset,
 		                     ostart + offset);
 		if (res == 0)
