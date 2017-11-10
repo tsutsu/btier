@@ -1606,19 +1606,10 @@ static int tier_register(struct tier_device *dev)
 	struct data_policy *dtapolicy = &magic->dtapolicy;
 	struct request_queue *q;
 
-	if (0 == dev->logical_block_size)
+	if (dev->logical_block_size < 512 || dev->logical_block_size > 4096 ||
+	    (dev->logical_block_size & (dev->logical_block_size - 1)) != 0)
 		dev->logical_block_size = 512;
-	if (dev->logical_block_size != 512 && dev->logical_block_size != 1024 &&
-	    dev->logical_block_size != 2048 && dev->logical_block_size != 4096)
-		dev->logical_block_size = 512;
-	if (dev->logical_block_size == 512)
-		dev->nsectors = dev->size >> 9;
-	if (dev->logical_block_size == 1024)
-		dev->nsectors = dev->size >> 10;
-	if (dev->logical_block_size == 2048)
-		dev->nsectors = dev->size >> 11;
-	if (dev->logical_block_size == 4096)
-		dev->nsectors = dev->size >> 12;
+	dev->nsectors = sector_divide(dev->size, dev->logical_block_size);
 	dev->size = dev->nsectors * dev->logical_block_size;
 	if (dev->size > BTIER_MAX_SIZE) {
 		kfree(dev);
