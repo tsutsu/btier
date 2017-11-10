@@ -1983,8 +1983,7 @@ static int copylist(struct tier_device *dev, int devicenr, u64 ostart,
 		    u64 osize, u64 nstart)
 {
 	int res = 0;
-	u64 offset;
-	u64 newoffset = nstart;
+	u64 offset = 0;
 	char *buffer;
 
 	pr_info("copylist device %u, ostart 0x%llx (%llu) osize  0x%llx "
@@ -1992,20 +1991,32 @@ static int copylist(struct tier_device *dev, int devicenr, u64 ostart,
 		devicenr, ostart, ostart, osize, osize, nstart, nstart,
 		nstart + osize, nstart + osize);
 	buffer = kzalloc(PAGE_SIZE, GFP_NOFS);
-	for (offset = ostart; offset < ostart + osize; offset += PAGE_SIZE) {
-		res = tier_file_read(dev, devicenr, buffer, PAGE_SIZE, offset);
+	if (buffer == NULL) {
+		tiererror(dev, "copylist : alloc failed");
+		return -1;
+	}
+	while (offset + PAGE_SIZE < osize) {
+		res = tier_file_read(dev, devicenr, buffer, PAGE_SIZE,
+		                     ostart + offset);
 		if (res < 0)
 			break;
 		res = tier_file_write(dev, devicenr, buffer, PAGE_SIZE,
-				      newoffset);
+				      nstart + offset);
 		if (res < 0)
 			break;
-		newoffset += PAGE_SIZE;
+		offset += PAGE_SIZE;
 	}
-	if (offset - ostart < osize) {
+	if (offset < osize) {
+		res = tier_file_read(dev, devicenr, buffer, osize - offset,
+		                     ostart + offset);
+		if (res == 0)
+			res = tier_file_write(dev, devicenr, buffer,
+					      osize - offset, nstart + offset);
+	}
+	if (res < 0) {
 		pr_info("copylist has failed, not expanding : offset %llu, "
-			"ostart %llu, osize %llu\n",
-			offset, ostart, osize);
+			"ostart %llu, osize %llu nstart %llu, res %d\n",
+			offset, ostart, osize, nstart, res);
 		res = -1;
 	}
 	kfree(buffer);
@@ -2214,8 +2225,8 @@ void resize_tier(struct tier_device *dev)
 		    KERNEL_SECTORSIZE * tier_get_size(dev->backdev[count]->fds);
 		curdevsize = round_to_blksize(curdevsize);
 		newbitlistsize = calc_bitlist_size(curdevsize);
-		pr_info("curdevsize = %llu old = %llu\n", curdevsize,
-			dev->backdev[count]->devicesize);
+		pr_info("device %u, curdevsize = %llu old = %llu\n", count,
+		        curdevsize, dev->backdev[count]->devicesize);
 		if (dev->backdev[count]->devicesize == curdevsize)
 			continue;
 		if (curdevsize - dev->backdev[count]->devicesize <
