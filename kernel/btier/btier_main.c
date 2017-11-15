@@ -616,7 +616,6 @@ void discard_on_real_device(struct tier_device *dev, struct blockinfo *binfo)
 	sector_t sector, nr_sects, endsector;
 	u64 endoffset;
 	unsigned int sector_size;
-	u64 devsectors;
 	unsigned long flags = 0;
 	struct request_queue *dq;
 	struct backing_device *backdev = dev->backdev[binfo->device - 1];
@@ -636,26 +635,27 @@ void discard_on_real_device(struct tier_device *dev, struct blockinfo *binfo)
 	 * return when it does not
 	*/
 	dq = bdev_get_queue(bdev);
-	if (blk_queue_discard(dq)) {
-		sector_size = bdev_logical_block_size(bdev);
-		devsectors = get_capacity(bdev->bd_disk);
+	if (!blk_queue_discard(dq))
+		return;
 
-		sector = sector_divide(binfo->offset, sector_size);
-		if (sector * sector_size < binfo->offset)
-			sector++;
+	sector_size = bdev_logical_block_size(bdev);
+	sector = sector_divide(binfo->offset, sector_size);
+	if (sector * sector_size < binfo->offset)
+	    sector++;
+	endoffset = binfo->offset + BLKSIZE;
+	endsector = sector_divide(endoffset, sector_size);
+	if (endsector <= sector)
+		return;
+	nr_sects = endsector - sector;
 
-		endoffset = binfo->offset + BLKSIZE;
-		endsector = sector_divide(endoffset, sector_size);
-		nr_sects = endsector - sector;
-		ret = blkdev_issue_discard(bdev, sector, nr_sects, GFP_NOFS,
-					   flags);
-		if (0 == ret)
-			pr_debug("discarded : device %s : sector %llu, nrsects "
-				 "%llu,sectorsize %u\n",
-				 backdev->devmagic->fullpathname,
-				 (unsigned long long)sector,
-				 (unsigned long long)nr_sects, sector_size);
-	}
+	ret = blkdev_issue_discard(bdev, sector, nr_sects, GFP_NOFS,
+				   flags);
+	if (0 == ret)
+		pr_debug("discarded : device %s : sector %llu, nrsects "
+			 "%llu, sectorsize %u\n",
+			 backdev->devmagic->fullpathname,
+			 (unsigned long long)sector,
+			 (unsigned long long)nr_sects, sector_size);
 }
 
 void reset_counters_on_migration(struct tier_device *dev,
