@@ -2237,6 +2237,8 @@ void resize_tier(struct tier_device *dev)
 	u64 newbitlistsize_total = 0;
 	int found = 0;
 
+	btier_lock(dev);
+
 	for (count = 0; count < dev->attached_devices; count++) {
 		curdevsize =
 		    KERNEL_SECTORSIZE * tier_get_size(dev->backdev[count]->fds);
@@ -2283,7 +2285,7 @@ void resize_tier(struct tier_device *dev)
 			(void)register_new_device_size(dev, newdevsize);
 		}
 	}
-	return;
+	btier_unlock(dev);
 }
 
 static long tier_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
