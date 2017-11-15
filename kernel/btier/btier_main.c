@@ -188,14 +188,21 @@ static void tier_sysfs_exit(struct tier_device *dev)
 }
 
 static struct devicemagic *read_device_magic(struct tier_device *dev,
-					     int device)
+					     int device,
+					     struct devicemagic *dmagic)
 {
-	struct devicemagic *dmagic;
-
-	dmagic = kzalloc(sizeof(struct devicemagic), GFP_KERNEL);
-	if (!dmagic)
+	if (dmagic == NULL)
+	    dmagic = kzalloc(sizeof(struct devicemagic), GFP_NOFS);
+	if (dmagic == NULL)
 		return NULL;
 	tier_file_read(dev, device, dmagic, sizeof(*dmagic), 0);
+	if (dmagic->magic != TIER_DEVICE_BIT_MAGIC) {
+		const char *devicename =
+		    dev->backdev[device]->fds->f_path.dentry->d_name.name;
+		pr_warn("read_device_magic : device %s missing magic\n",
+			  devicename);
+	}
+
 	return dmagic;
 }
 
@@ -1412,9 +1419,9 @@ static int order_devices(struct tier_device *dev)
 	int clean = 1;
 	struct backing_device *backdev;
 	struct data_policy *dtapolicy;
-	static struct devicemagic *devmagic;
 	char *zhash, *uuid;
 	const char *devicename;
+	struct devicemagic *devmagic;
 	struct block_device *bdev = NULL;
 	int res = -ENOMEM;
 
@@ -1431,7 +1438,7 @@ static int order_devices(struct tier_device *dev)
 
 	/* Allocate and load */
 	for (i = 0; i < dev->attached_devices; i++) {
-		dev->backdev[i]->devmagic = read_device_magic(dev, i);
+		dev->backdev[i]->devmagic = read_device_magic(dev, i, NULL);
 		spin_lock_init(&dev->backdev[i]->magic_lock);
 		spin_lock_init(&dev->backdev[i]->dev_alloc_lock);
 		if (!dev->backdev[i]->devmagic) {
@@ -1444,12 +1451,9 @@ static int order_devices(struct tier_device *dev)
 
 	/* Check and swap */
 	if (swap) {
+		devmagic = kzalloc(sizeof(struct devicemagic), GFP_KERNEL);
 		for (i = 0; i < dev->attached_devices; i++) {
-			devmagic = read_device_magic(dev, i);
-			if (!devmagic) {
-				tiererror(dev, "order_devices : alloc failed");
-				goto end_error;
-			}
+			read_device_magic(dev, i, devmagic);
 			newnr = devmagic->device;
 			if (i != newnr) {
 				memcpy(backdev, dev->backdev[i],
@@ -1459,8 +1463,8 @@ static int order_devices(struct tier_device *dev)
 				memcpy(dev->backdev[newnr], backdev,
 				       sizeof(struct backing_device));
 			}
-			kfree(devmagic);
 		}
+		kfree(devmagic);
 	}
 	/* Mark as inuse */
 	for (i = 0; i < dev->attached_devices; i++) {
