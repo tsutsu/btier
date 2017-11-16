@@ -217,9 +217,9 @@ static void mark_device_clean(struct tier_device *dev, int device)
 	struct backing_device *backdev = dev->backdev[device];
 	backdev->devmagic->clean = CLEAN;
 	memset(&backdev->devmagic->binfo_journal_new, 0,
-	       sizeof(struct blockinfo));
+	       sizeof(struct physical_blockinfo));
 	memset(&backdev->devmagic->binfo_journal_old, 0,
-	       sizeof(struct blockinfo));
+	       sizeof(struct physical_blockinfo));
 	write_device_magic(dev, device);
 }
 
