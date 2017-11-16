@@ -4,6 +4,8 @@
  * Copyright (C) 2014 Mark Ruijter, <mruijter@gmail.com>
  *
  * Btier2 changes, Copyright (C) 2014 Jianjian Huo, <samuel.huo@gmail.com>
+ *
+ * Copyright (c) 2017 SoftNAS, LLC
  */
 
 #include "btier.h"

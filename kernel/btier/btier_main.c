@@ -15,6 +15,7 @@
  * aio_thread and tier_thread removed; passing sync to all underlying devices,
  * and etc. Copyright (C) 2014 Jianjian Huo, <samuel.huo@gmail.com>
  *
+ * Copyright (c) 2017 SoftNAS, LLC
  */
 
 #include "btier.h"
@@ -22,7 +23,7 @@
 
 #define TRUE 1
 #define FALSE 0
-#define TIER_VERSION "2.0.1"
+#define TIER_VERSION "2.1.0"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Mark Ruijter");
