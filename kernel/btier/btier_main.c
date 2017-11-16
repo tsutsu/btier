@@ -2062,27 +2062,64 @@ static int copylist(struct tier_device *dev, int devicenr, u64 ostart,
    so that the old bitlist location is no longer used
    Return : 0 on success, negative on error */
 static int migrate_bitlist(struct tier_device *dev, int devicenr,
-			   u64 newdevsize, u64 newbitlistsize,
-			   u64 newstartofbitlist)
+			   u64 newstartofbitlist, u64 newbitlistsize)
 {
 	struct backing_device *backdev = dev->backdev[devicenr];
-	int res = 0;
+	int res;
 
 	pr_info("migrate_bitlist : device %u\n", devicenr);
 	if (newstartofbitlist + newbitlistsize < backdev->devicesize) {
 		pr_info("Device size has not grown enough to expand\n");
 		return -1;
 	}
-	wipe_bitlist(dev, devicenr, newstartofbitlist, newbitlistsize);
 	res = copylist(dev, devicenr, backdev->startofbitlist,
 		       backdev->bitlistsize, newstartofbitlist);
 	if (res != 0)
 		return res;
+
+	wipe_bitlist(dev, devicenr, newstartofbitlist + backdev->bitlistsize,
+	             newbitlistsize - backdev->bitlistsize);
 	// Make sure the new bitlist is synced to disk before
 	// we continue
 	res = vfs_fsync_range(backdev->fds, newstartofbitlist,
-			      newstartofbitlist + backdev->bitlistsize,
+			      newstartofbitlist + newbitlistsize,
 			      FSMODE);
+	if (res != 0)
+		return res;
+
+	backdev->startofbitlist = newstartofbitlist;
+	backdev->bitlistsize = newbitlistsize;
+	backdev->devmagic->startofbitlist = newstartofbitlist;
+	backdev->devmagic->bitlistsize = newbitlistsize;
+	return res;
+}
+
+/* migrate a blocklist from one location to another
+   Return : 0 on success, negative on error */
+static int migrate_blocklist(struct tier_device *dev, u64 newstartofblocklist,
+			     u64 newblocklistsize)
+{
+	struct backing_device *backdev0 = dev->backdev[0];
+	int res;
+
+	res = copylist(dev, 0, backdev0->startofblocklist, dev->blocklistsize,
+	               newstartofblocklist);
+	if (res != 0)
+		return res;
+
+	wipe_bitlist(dev, 0, newstartofblocklist + dev->blocklistsize,
+		     newblocklistsize - dev->blocklistsize);
+	res = vfs_fsync_range(backdev0->fds, newstartofblocklist,
+			      newstartofblocklist + newblocklistsize,
+			      FSMODE);
+	if (res != 0)
+		return res;
+
+	dev->blocklistsize = newblocklistsize;
+	backdev0->startofblocklist = newstartofblocklist;
+	backdev0->endofdata = newstartofblocklist - 1;
+	backdev0->devmagic->blocklistsize = newblocklistsize;
+	backdev0->devmagic->startofblocklist = newstartofblocklist;
 	return res;
 }
 
@@ -2160,17 +2197,22 @@ static int do_resize_tier(struct tier_device *dev, int devicenr, u64 newdevsize,
 	struct backing_device *backdev = dev->backdev[devicenr];
 	struct backing_device *backdev0 = dev->backdev[0];
 	int res = 0;
-	u64 startofnewblocklist;
-	u64 startofnewbitlist;
+	u64 newstartofblocklist;
+	u64 newstartofbitlist;
 
 	pr_info("resize device %s devicenr %u from %llu to %llu\n",
 		backdev->fds->f_path.dentry->d_name.name, devicenr,
 		backdev->devicesize, newdevsize);
-	startofnewbitlist = newdevsize - newbitlistsize;
-	res = migrate_bitlist(dev, devicenr, newdevsize, newbitlistsize,
-			      startofnewbitlist);
+	newstartofbitlist = newdevsize - newbitlistsize;
+	res = migrate_bitlist(dev, devicenr, newstartofbitlist,
+			      newbitlistsize);
 	if (0 != res)
 		return res;
+
+	/* We might have moved the device 0 bitlist */
+	newstartofblocklist =
+	    backdev0->startofbitlist - newblocklistsize;
+
 	/* When device 0 has grown we move the bitlist of the device to
 	   the end of the device and then move the blocklist to the end
 	   This does not require data migration
@@ -2180,75 +2222,35 @@ static int do_resize_tier(struct tier_device *dev, int devicenr, u64 newdevsize,
 	   from device0 to another device to make room for the larger
 	   blocklist */
 	if (devicenr == 0) {
-		startofnewblocklist = startofnewbitlist - newblocklistsize;
-		wipe_bitlist(dev, devicenr, startofnewblocklist,
-			     newblocklistsize);
-		res = copylist(dev, 0, backdev0->startofblocklist,
-			       dev->blocklistsize, startofnewblocklist);
+		res = migrate_blocklist(dev, newstartofblocklist,
+					newblocklistsize);
 		if (0 != res)
 			return res;
-		res = vfs_fsync_range(backdev0->fds, startofnewblocklist,
-			      startofnewblocklist + newblocklistsize,
-			      FSMODE);
-		if (0 != res)
-			return res;
-		backdev0->startofblocklist = startofnewblocklist;
-		dev->blocklistsize = newblocklistsize;
-		backdev0->devmagic->blocklistsize =
-		    newblocklistsize;
-		backdev0->devmagic->startofblocklist =
-		    startofnewblocklist;
 	} else {
-		startofnewblocklist =
-		    backdev0->startofbitlist - newblocklistsize;
-		if (startofnewblocklist < backdev0->startofblocklist) {
-			res =
-			    migrate_data_if_needed(dev, startofnewblocklist,
-						   newblocklistsize, devicenr);
+		if (newblocklistsize > dev->blocklistsize) {
+			res = migrate_data_if_needed(dev, newstartofblocklist,
+						     newblocklistsize,
+						     devicenr);
 			if (0 != res)
 				return res;
 			// This should be journalled. FIX FIX FIX
 			// The blocklist needs to be protected at all cost.
-			res =
-			    copylist(dev, 0, backdev0->startofblocklist,
-				     dev->blocklistsize, startofnewblocklist);
+			res = migrate_blocklist(dev, newstartofblocklist,
+						newblocklistsize);
 			if (0 != res)
 				return res;
-			wipe_bitlist(dev, 0,
-				     startofnewblocklist + dev->blocklistsize,
-				     newblocklistsize - dev->blocklistsize);
-			res = vfs_fsync_range(backdev0->fds,
-					      startofnewblocklist,
-					      startofnewblocklist +
-					          newblocklistsize,
-					      FSMODE);
-			if (0 != res)
-				return res;
-			backdev0->startofblocklist = startofnewblocklist;
-			dev->blocklistsize = newblocklistsize;
-			backdev0->devmagic->blocklistsize =
-			    newblocklistsize;
-			backdev0->devmagic->startofblocklist =
-			    startofnewblocklist;
-			backdev0->endofdata =
-			    backdev0->startofblocklist - 1;
 			write_device_magic(dev, 0);
-		} else
-			pr_info("startofnewblocklist %llu, old start %llu, no "
-				"migration needed\n",
-				startofnewblocklist,
+		} else {
+			pr_info("newstartofblocklist %llu, old start %llu, no "
+				"migration needed\n", newstartofblocklist,
 				backdev0->startofblocklist);
+		}
+
+		backdev->endofdata = newstartofbitlist - 1;
 	}
-	if (devicenr == 0)
-		backdev0->endofdata = startofnewblocklist - 1;
-	else
-		backdev->endofdata = startofnewbitlist - 1;
-	backdev->startofbitlist = startofnewbitlist;
-	backdev->bitlistsize = newbitlistsize;
-	backdev->devmagic->bitlistsize = newbitlistsize;
-	backdev->devmagic->startofbitlist = startofnewbitlist;
-	backdev->devmagic->devicesize = newdevsize;
+
 	backdev->devicesize = newdevsize;
+	backdev->devmagic->devicesize = newdevsize;
 	write_device_magic(dev, devicenr);
 	res = tier_sync(dev);
 	return res;
