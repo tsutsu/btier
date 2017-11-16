@@ -208,8 +208,20 @@ static struct devicemagic *read_device_magic(struct tier_device *dev,
 
 static void write_device_magic(struct tier_device *dev, int device)
 {
-	struct devicemagic *dmagic = dev->backdev[device]->devmagic;
-	tier_file_write(dev, device, dmagic, sizeof(*dmagic), 0);
+	int res;
+	struct backing_device *backdev = dev->backdev[device];
+	struct devicemagic *dmagic = backdev->devmagic;
+	if (dmagic->magic != TIER_DEVICE_BIT_MAGIC)
+		pr_warn("write_device_magic : device %u bad devmagic\n",
+		        device);
+	res = tier_file_write(dev, device, dmagic, sizeof(*dmagic), 0);
+	if (res != 0)
+		pr_err("write_device_magic : unable to write magic for "
+			 "device %u\n", device);
+	res = vfs_fsync_range(backdev->fds, 0, sizeof(*dmagic), 0);
+	if (res != 0)
+		pr_err("write_device_magic : unable to sync magic for "
+			 "device %u\n", device);
 }
 
 static void mark_device_clean(struct tier_device *dev, int device)
@@ -226,15 +238,16 @@ static void mark_device_clean(struct tier_device *dev, int device)
 static int mark_offset_as_used(struct tier_device *dev, int device, u64 offset)
 {
 	u64 boffset;
+	u64 bloffset;
 	u8 allocated = ALLOCATED;
 	struct backing_device *backdev = dev->backdev[device];
 	int ret;
 
 	boffset = offset >> BLK_SHIFT;
-	ret = tier_file_write(dev, device, &allocated, 1,
-			      backdev->startofbitlist + boffset);
-	ret = vfs_fsync_range(backdev->fds, backdev->startofbitlist + boffset,
-			      1, FSMODE);
+	bloffset = backdev->startofbitlist + boffset;
+
+	ret = tier_file_write(dev, device, &allocated, 1, bloffset);
+	vfs_fsync_range(backdev->fds, bloffset, bloffset + 1, FSMODE);
 
 	spin_lock(&backdev->dev_alloc_lock);
 	backdev->bitlist[boffset] = allocated;
@@ -247,17 +260,16 @@ void clear_dev_list(struct tier_device *dev, struct blockinfo *binfo)
 {
 	u64 offset;
 	u64 boffset;
+	u64 bloffset;
 	u8 unallocated = UNALLOCATED;
 	struct backing_device *backdev = dev->backdev[binfo->device - 1];
 
 	offset = binfo->offset - backdev->startofdata;
 	boffset = offset >> BLK_SHIFT;
+	bloffset = backdev->startofbitlist + boffset;
 
-	tier_file_write(dev, binfo->device - 1, &unallocated, 1,
-			backdev->startofbitlist + boffset);
-
-	vfs_fsync_range(backdev->fds, backdev->startofbitlist + boffset, 1,
-			FSMODE);
+	tier_file_write(dev, binfo->device - 1, &unallocated, 1, bloffset);
+	vfs_fsync_range(backdev->fds, bloffset, bloffset + 1, FSMODE);
 
 	spin_lock(&backdev->dev_alloc_lock);
 	if (backdev->free_offset > boffset)
@@ -377,18 +389,31 @@ static int tier_file_read(struct tier_device *dev, unsigned int device,
 	return bw;
 }
 
+static int sync_device(struct tier_device *dev, int device)
+{
+	int ret = 0;
+	struct backing_device *backdev = dev->backdev[device];
+	if (backdev->dirty) {
+		ret = vfs_fsync(backdev->fds, 0);
+		if (ret != 0)
+			pr_err("sync_device failed for device %u\n", device);
+		else
+			backdev->dirty = 0;
+	}
+
+	return ret;
+}
+
 int tier_sync(struct tier_device *dev)
 {
+	int res;
 	int ret = 0;
 	int i;
 	set_debug_info(dev, PRESYNC);
 	for (i = 0; i < dev->attached_devices; i++) {
-		if (dev->backdev[i]->dirty) {
-			ret = vfs_fsync(dev->backdev[i]->fds, 0);
-			if (ret != 0)
-				break;
-			dev->backdev[i]->dirty = 0;
-		}
+		res = sync_device(dev, i);
+		if (res != 0)
+			ret = res;
 	}
 	clear_debug_info(dev, PRESYNC);
 	return ret;
@@ -517,10 +542,10 @@ int write_blocklist(struct tier_device *dev, u64 blocknr,
 	}
 
 	if (write_policy != WC) {
-		u64 blocklist_offset = backdev->startofblocklist;
+		u64 blocklist_offset;
 		struct physical_blockinfo phy_binfo;
 
-		blocklist_offset +=
+		blocklist_offset = backdev->startofblocklist +
 		    (blocknr * sizeof(struct physical_blockinfo));
 		copy_blockinfo(&phy_binfo, binfo);
 
@@ -538,29 +563,17 @@ int write_blocklist(struct tier_device *dev, u64 blocknr,
 	return ret;
 }
 
-static void sync_device(struct tier_device *dev, int device)
-{
-	struct backing_device *backdev = dev->backdev[device];
-	if (backdev->dirty) {
-		vfs_fsync(backdev->fds, 0);
-		backdev->dirty = 0;
-	}
-}
-
 static void write_blocklist_journal(struct tier_device *dev, u64 blocknr,
 				    struct blockinfo *newdevice,
 				    struct blockinfo *olddevice)
 {
-	struct backing_device *oldbackdev = dev->backdev[olddevice->device - 1];
-	struct devicemagic *olddev_magic = oldbackdev->devmagic;
+	int device = olddevice->device - 1;
+	struct devicemagic *olddev_magic = dev->backdev[device]->devmagic;
 
 	copy_blockinfo(&olddev_magic->binfo_journal_old, olddevice);
 	copy_blockinfo(&olddev_magic->binfo_journal_new, newdevice);
-
 	olddev_magic->blocknr_journal = blocknr;
-	tier_file_write(dev, olddevice->device - 1, oldbackdev->devmagic,
-			sizeof(struct devicemagic), 0);
-	sync_device(dev, olddevice->device - 1);
+	write_device_magic(dev, device);
 }
 
 static void clean_blocklist_journal(struct tier_device *dev, int device)
@@ -572,8 +585,7 @@ static void clean_blocklist_journal(struct tier_device *dev, int device)
 	memset(&devmagic->binfo_journal_new, 0,
 	       sizeof(struct physical_blockinfo));
 	devmagic->blocknr_journal = 0;
-	tier_file_write(dev, device, devmagic, sizeof(*devmagic), 0);
-	sync_device(dev, device);
+	write_device_magic(dev, device);
 }
 
 static void recover_journal(struct tier_device *dev, int device)
@@ -1160,7 +1172,6 @@ static void data_migrator(struct work_struct *work)
 			continue;
 		}
 		btier_lock(dev);
-		tier_sync(dev);
 		walk_blocklist(dev);
 		btier_unlock(dev);
 		if (dev->migrate_verbose)
@@ -1933,13 +1944,15 @@ static int determine_device_size(struct tier_device *dev)
 {
 	int i;
 	struct backing_device *backdev;
-	dev->size = dev->backdev[0]->devmagic->total_device_size;
-	dev->backdev[0]->startofblocklist =
-	    dev->backdev[0]->devmagic->startofblocklist;
-	dev->blocklistsize = dev->backdev[0]->devmagic->blocklistsize;
+	struct backing_device *backdev0 = dev->backdev[0];
+
+	dev->size = backdev0->devmagic->total_device_size;
+	backdev0->startofblocklist =
+	    backdev0->devmagic->startofblocklist;
+	dev->blocklistsize = backdev0->devmagic->blocklistsize;
 	pr_info("dev->blocklistsize               : 0x%llx (%llu)\n",
 		dev->blocklistsize, dev->blocklistsize);
-	dev->backdev[0]->endofdata = dev->backdev[0]->startofblocklist - 1;
+	backdev0->endofdata = backdev0->startofblocklist - 1;
 	for (i = 0; i < dev->attached_devices; i++) {
 		backdev = dev->backdev[i];
 		backdev->bitlistsize = backdev->devmagic->bitlistsize;
@@ -1961,7 +1974,7 @@ static int determine_device_size(struct tier_device *dev)
 			backdev->endofdata);
 	}
 	pr_info("dev->backdev[0]->startofblocklist: 0x%llx\n",
-		dev->backdev[0]->startofblocklist);
+		backdev0->startofblocklist);
 	return 0;
 }
 
@@ -2052,22 +2065,24 @@ static int migrate_bitlist(struct tier_device *dev, int devicenr,
 			   u64 newdevsize, u64 newbitlistsize,
 			   u64 newstartofbitlist)
 {
+	struct backing_device *backdev = dev->backdev[devicenr];
 	int res = 0;
 
 	pr_info("migrate_bitlist : device %u\n", devicenr);
-	if (newstartofbitlist + newbitlistsize < dev->backdev[devicenr]->devicesize) {
+	if (newstartofbitlist + newbitlistsize < backdev->devicesize) {
 		pr_info("Device size has not grown enough to expand\n");
 		return -1;
 	}
 	wipe_bitlist(dev, devicenr, newstartofbitlist, newbitlistsize);
-	res = copylist(dev, devicenr, dev->backdev[devicenr]->startofbitlist,
-		       dev->backdev[devicenr]->bitlistsize, newstartofbitlist);
+	res = copylist(dev, devicenr, backdev->startofbitlist,
+		       backdev->bitlistsize, newstartofbitlist);
 	if (res != 0)
 		return res;
 	// Make sure the new bitlist is synced to disk before
 	// we continue
-	if (0 != (res = tier_sync(dev)))
-		return res;
+	res = vfs_fsync_range(backdev->fds, newstartofbitlist,
+			      newstartofbitlist + backdev->bitlistsize,
+			      FSMODE);
 	return res;
 }
 
@@ -2142,13 +2157,15 @@ static int migrate_data_if_needed(struct tier_device *dev, u64 startofblocklist,
 static int do_resize_tier(struct tier_device *dev, int devicenr, u64 newdevsize,
 			  u64 newblocklistsize, u64 newbitlistsize)
 {
+	struct backing_device *backdev = dev->backdev[devicenr];
+	struct backing_device *backdev0 = dev->backdev[0];
 	int res = 0;
 	u64 startofnewblocklist;
 	u64 startofnewbitlist;
 
 	pr_info("resize device %s devicenr %u from %llu to %llu\n",
-		dev->backdev[devicenr]->fds->f_path.dentry->d_name.name,
-		devicenr, dev->backdev[devicenr]->devicesize, newdevsize);
+		backdev->fds->f_path.dentry->d_name.name, devicenr,
+		backdev->devicesize, newdevsize);
 	startofnewbitlist = newdevsize - newbitlistsize;
 	res = migrate_bitlist(dev, devicenr, newdevsize, newbitlistsize,
 			      startofnewbitlist);
@@ -2166,23 +2183,25 @@ static int do_resize_tier(struct tier_device *dev, int devicenr, u64 newdevsize,
 		startofnewblocklist = startofnewbitlist - newblocklistsize;
 		wipe_bitlist(dev, devicenr, startofnewblocklist,
 			     newblocklistsize);
-		res = copylist(dev, devicenr,
-			       dev->backdev[devicenr]->startofblocklist,
+		res = copylist(dev, 0, backdev0->startofblocklist,
 			       dev->blocklistsize, startofnewblocklist);
 		if (0 != res)
 			return res;
-		if (0 != (res = tier_sync(dev)))
+		res = vfs_fsync_range(backdev0->fds, startofnewblocklist,
+			      startofnewblocklist + newblocklistsize,
+			      FSMODE);
+		if (0 != res)
 			return res;
-		dev->backdev[devicenr]->startofblocklist = startofnewblocklist;
+		backdev0->startofblocklist = startofnewblocklist;
 		dev->blocklistsize = newblocklistsize;
-		dev->backdev[devicenr]->devmagic->blocklistsize =
+		backdev0->devmagic->blocklistsize =
 		    newblocklistsize;
-		dev->backdev[devicenr]->devmagic->startofblocklist =
+		backdev0->devmagic->startofblocklist =
 		    startofnewblocklist;
 	} else {
 		startofnewblocklist =
-		    dev->backdev[0]->startofbitlist - newblocklistsize;
-		if (startofnewblocklist < dev->backdev[0]->startofblocklist) {
+		    backdev0->startofbitlist - newblocklistsize;
+		if (startofnewblocklist < backdev0->startofblocklist) {
 			res =
 			    migrate_data_if_needed(dev, startofnewblocklist,
 						   newblocklistsize, devicenr);
@@ -2191,40 +2210,45 @@ static int do_resize_tier(struct tier_device *dev, int devicenr, u64 newdevsize,
 			// This should be journalled. FIX FIX FIX
 			// The blocklist needs to be protected at all cost.
 			res =
-			    copylist(dev, 0, dev->backdev[0]->startofblocklist,
+			    copylist(dev, 0, backdev0->startofblocklist,
 				     dev->blocklistsize, startofnewblocklist);
 			if (0 != res)
 				return res;
 			wipe_bitlist(dev, 0,
 				     startofnewblocklist + dev->blocklistsize,
 				     newblocklistsize - dev->blocklistsize);
-			if (0 != (res = tier_sync(dev)))
+			res = vfs_fsync_range(backdev0->fds,
+					      startofnewblocklist,
+					      startofnewblocklist +
+					          newblocklistsize,
+					      FSMODE);
+			if (0 != res)
 				return res;
-			dev->backdev[0]->startofblocklist = startofnewblocklist;
+			backdev0->startofblocklist = startofnewblocklist;
 			dev->blocklistsize = newblocklistsize;
-			dev->backdev[0]->devmagic->blocklistsize =
+			backdev0->devmagic->blocklistsize =
 			    newblocklistsize;
-			dev->backdev[0]->devmagic->startofblocklist =
+			backdev0->devmagic->startofblocklist =
 			    startofnewblocklist;
-			dev->backdev[0]->endofdata =
-			    dev->backdev[0]->startofblocklist - 1;
+			backdev0->endofdata =
+			    backdev0->startofblocklist - 1;
 			write_device_magic(dev, 0);
 		} else
 			pr_info("startofnewblocklist %llu, old start %llu, no "
 				"migration needed\n",
 				startofnewblocklist,
-				dev->backdev[0]->startofblocklist);
+				backdev0->startofblocklist);
 	}
 	if (devicenr == 0)
-		dev->backdev[devicenr]->endofdata = startofnewblocklist - 1;
+		backdev0->endofdata = startofnewblocklist - 1;
 	else
-		dev->backdev[devicenr]->endofdata = startofnewbitlist - 1;
-	dev->backdev[devicenr]->startofbitlist = startofnewbitlist;
-	dev->backdev[devicenr]->bitlistsize = newbitlistsize;
-	dev->backdev[devicenr]->devmagic->bitlistsize = newbitlistsize;
-	dev->backdev[devicenr]->devmagic->startofbitlist = startofnewbitlist;
-	dev->backdev[devicenr]->devmagic->devicesize = newdevsize;
-	dev->backdev[devicenr]->devicesize = newdevsize;
+		backdev->endofdata = startofnewbitlist - 1;
+	backdev->startofbitlist = startofnewbitlist;
+	backdev->bitlistsize = newbitlistsize;
+	backdev->devmagic->bitlistsize = newbitlistsize;
+	backdev->devmagic->startofbitlist = startofnewbitlist;
+	backdev->devmagic->devicesize = newdevsize;
+	backdev->devicesize = newdevsize;
 	write_device_magic(dev, devicenr);
 	res = tier_sync(dev);
 	return res;
