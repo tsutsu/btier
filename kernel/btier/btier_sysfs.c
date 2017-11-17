@@ -4,6 +4,8 @@
  * Copyright (C) 2014 Mark Ruijter, <mruijter@gmail.com>
  *
  * Btier2 changes, Copyright (C) 2014 Jianjian Huo, <samuel.huo@gmail.com>
+ *
+ * Copyright (c) 2017 SoftNAS, LLC
  */
 
 #include "btier.h"
@@ -139,9 +141,12 @@ static ssize_t tier_attr_attacheddevices_show(struct tier_device *dev,
 static ssize_t tier_attr_migration_enable_store(struct tier_device *dev,
 						const char *buf, size_t s)
 {
-	struct data_policy *dtapolicy = &dev->backdev[0]->devmagic->dtapolicy;
+	struct data_policy *dtapolicy;
+
 	if ('0' != buf[0] && '1' != buf[0])
 		return s;
+	spin_lock(&dev->backdev[0]->magic_lock);
+	dtapolicy = &dev->backdev[0]->devmagic->dtapolicy;
 	if ('1' == buf[0]) {
 		if (dtapolicy->migration_disabled) {
 			dtapolicy->migration_disabled = 0;
@@ -162,6 +167,7 @@ static ssize_t tier_attr_migration_enable_store(struct tier_device *dev,
 		}
 		dtapolicy->migration_disabled = 1;
 	}
+	spin_unlock(&dev->backdev[0]->magic_lock);
 	return s;
 }
 
@@ -224,11 +230,7 @@ static ssize_t tier_attr_resize_store(struct tier_device *dev, const char *buf,
 {
 	if ('1' != buf[0])
 		return s;
-	down_write(&dev->qlock);
-	free_bitlists(dev);
 	resize_tier(dev);
-	load_bitlists(dev);
-	up_write(&dev->qlock);
 	return s;
 }
 
@@ -419,11 +421,11 @@ static ssize_t tier_attr_migration_policy_store(struct tier_device *dev,
 	res = sscanf(a, "%u", &hit_collecttime);
 	if (res != 1)
 		goto end_error;
-	down_write(&dev->qlock);
+	spin_lock(&dev->backdev[devicenr]->magic_lock);
 	dev->backdev[devicenr]->devmagic->dtapolicy.max_age = max_age;
 	dev->backdev[devicenr]->devmagic->dtapolicy.hit_collecttime =
 	    hit_collecttime;
-	up_write(&dev->qlock);
+	spin_unlock(&dev->backdev[devicenr]->magic_lock);
 	kfree(cpybuf);
 	return s;
 
@@ -438,8 +440,8 @@ static ssize_t tier_attr_migration_interval_store(struct tier_device *dev,
 	int res;
 	u64 interval;
 	char *cpybuf;
-	struct data_policy *dtapolicy = &dev->backdev[0]->devmagic->dtapolicy;
-	int curstate = dtapolicy->migration_disabled;
+	struct data_policy *dtapolicy;
+	int curstate;
 
 	cpybuf = null_term_buf(buf, s);
 	if (!cpybuf)
@@ -448,16 +450,22 @@ static ssize_t tier_attr_migration_interval_store(struct tier_device *dev,
 	if (res == 1) {
 		if (interval <= 0)
 			return -ENOMSG;
+		spin_lock(&dev->backdev[0]->magic_lock);
+		dtapolicy = &dev->backdev[0]->devmagic->dtapolicy;
+		curstate = dtapolicy->migration_disabled;
 		dtapolicy->migration_disabled = 1;
+		spin_unlock(&dev->backdev[0]->magic_lock);
 		down_write(&dev->qlock);
+		dtapolicy = &dev->backdev[0]->devmagic->dtapolicy;
 		dtapolicy->migration_interval = interval;
 		if (!dtapolicy->migration_disabled)
 			mod_timer(&dev->migrate_timer,
-				  jiffies + msecs_to_jiffies(
-						dtapolicy->migration_interval *
-						1000));
+				  jiffies + msecs_to_jiffies(interval * 1000));
 		up_write(&dev->qlock);
+		spin_lock(&dev->backdev[0]->magic_lock);
+		dtapolicy = &dev->backdev[0]->devmagic->dtapolicy;
 		dtapolicy->migration_disabled = curstate;
+		spin_unlock(&dev->backdev[0]->magic_lock);
 	} else
 		s = -ENOMSG;
 	kfree(cpybuf);
@@ -467,8 +475,14 @@ static ssize_t tier_attr_migration_interval_store(struct tier_device *dev,
 static ssize_t tier_attr_migration_enable_show(struct tier_device *dev,
 					       char *buf)
 {
-	struct data_policy *dtapolicy = &dev->backdev[0]->devmagic->dtapolicy;
-	return sprintf(buf, "%i\n", !dtapolicy->migration_disabled);
+	struct data_policy *dtapolicy;
+	int migration_disabled;
+
+	spin_lock(&dev->backdev[0]->magic_lock);
+	dtapolicy = &dev->backdev[0]->devmagic->dtapolicy;
+	migration_disabled = dtapolicy->migration_disabled;
+	spin_unlock(&dev->backdev[0]->magic_lock);
+	return sprintf(buf, "%i\n", !migration_disabled);
 }
 
 static ssize_t tier_attr_internals_show(struct tier_device *dev, char *buf)
@@ -531,7 +545,9 @@ static ssize_t tier_attr_uuid_show(struct tier_device *dev, char *buf)
 {
 	int res = 0;
 
+	spin_lock(&dev->backdev[0]->magic_lock);
 	memcpy(buf, dev->backdev[0]->devmagic->uuid, TIGER_HASH_LEN);
+	spin_unlock(&dev->backdev[0]->magic_lock);
 	buf[TIGER_HASH_LEN] = '\n';
 	res = TIGER_HASH_LEN + 1;
 	return res;
@@ -592,7 +608,7 @@ static ssize_t tier_attr_sequential_landing_show(struct tier_device *dev,
 
 	spin_lock(&backdev->magic_lock);
 	len = sprintf(buf, "%i\n",
-		      dev->backdev[0]->devmagic->dtapolicy.sequential_landing);
+		      backdev->devmagic->dtapolicy.sequential_landing);
 	spin_unlock(&backdev->magic_lock);
 
 	return len;
@@ -613,6 +629,7 @@ static ssize_t tier_attr_migration_policy_show(struct tier_device *dev,
 	int res;
 
 	for (i = 0; i < dev->attached_devices; i++) {
+		spin_lock(&dev->backdev[i]->magic_lock);
 		if (!msg) {
 			msg2 = as_sprintf(
 			    "%7s %20s %15s %15s\n%7u %20s %15u %15u\n", "tier",
@@ -629,6 +646,7 @@ static ssize_t tier_attr_migration_policy_show(struct tier_device *dev,
 			    dev->backdev[i]
 				->devmagic->dtapolicy.hit_collecttime);
 		}
+		spin_unlock(&dev->backdev[i]->magic_lock);
 		kfree(msg);
 		msg = msg2;
 	}
@@ -640,8 +658,14 @@ static ssize_t tier_attr_migration_policy_show(struct tier_device *dev,
 static ssize_t tier_attr_migration_interval_show(struct tier_device *dev,
 						 char *buf)
 {
-	struct data_policy *dtapolicy = &dev->backdev[0]->devmagic->dtapolicy;
-	return sprintf(buf, "%llu\n", dtapolicy->migration_interval);
+	struct data_policy *dtapolicy;
+	u64 migration_interval;
+
+	spin_lock(&dev->backdev[0]->magic_lock);
+	dtapolicy = &dev->backdev[0]->devmagic->dtapolicy;
+	migration_interval = dtapolicy->migration_interval;
+	spin_unlock(&dev->backdev[0]->magic_lock);
+	return sprintf(buf, "%llu\n", migration_interval);
 }
 
 static ssize_t tier_attr_numwrites_show(struct tier_device *dev, char *buf)
