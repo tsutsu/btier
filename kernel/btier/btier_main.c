@@ -1775,6 +1775,7 @@ static int register_new_device_size(struct tier_device *dev, u64 newdevsize)
 	dev->nsectors = sector_divide(newdevsize, dev->logical_block_size);
 	dev->size = dev->nsectors * dev->logical_block_size;
 	dev->backdev[0]->devmagic->total_device_size = dev->size;
+	write_device_magic(dev, 0);
 
 	ret = alloc_blocklock(dev);
 	if (ret != 0) {
@@ -1896,8 +1897,8 @@ static void tier_deregister(struct tier_device *dev)
 		release_devicename(dev->devname);
 
 		tier_sync(dev);
-		free_blocklist(dev);
 		free_bitlists(dev);
+		free_blocklist(dev);
 		free_blocklock(dev);
 		free_moving_bio(dev);
 
